@@ -1,0 +1,6 @@
+_recall-index.json
+_recall-state/
+_capture-queue.jsonl
+_distill-batch.md*
+_logs/
+.obsidian/

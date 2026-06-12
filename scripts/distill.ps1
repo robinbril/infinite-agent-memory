@@ -52,10 +52,14 @@ $pending  = @($entries | Where-Object { -not $_.done } | Select-Object -First $B
 if ($pending.Count -eq 0) { Log 'no pending sessions'; exit 0 }
 Log "start: $($pending.Count) session(s) to distill"
 
-# build the batch digest
+# build the batch digest. Besides the session cap a byte cap applies: a batch
+# beyond ~250KB (~62k tokens) would overflow the headless run's context; the
+# remainder stays pending for the next round.
+$MAX_BATCH_BYTES = 250KB
 $sb = New-Object System.Text.StringBuilder
 $processed = New-Object System.Collections.Generic.HashSet[string]
 foreach ($e in $pending) {
+  if ($sb.Length -ge $MAX_BATCH_BYTES) { Log "byte cap reached ($([math]::Round($sb.Length/1KB))KB), rest deferred to next round"; break }
   $tp = $e.transcriptPath
   if ([string]::IsNullOrWhiteSpace($tp) -or !(Test-Path $tp)) { Log "transcript missing, skip: $($e.sessionId)"; continue }
   $digest = & node $digester $tp 2>$null

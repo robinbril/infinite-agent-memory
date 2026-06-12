@@ -44,15 +44,21 @@ const [queue, digester, batchFile, batchSize] = process.argv.slice(2);
 const lines = fs.readFileSync(queue, 'utf8').split('\n').filter(Boolean);
 const entries = lines.map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
 const pending = entries.filter(e => !e.done).slice(0, Number(batchSize));
+// byte cap besides the session cap: a batch beyond ~250KB (~62k tokens) would
+// overflow the headless run's context; the remainder stays pending.
+const MAX_BATCH_BYTES = 250 * 1024;
 const parts = [];
 const processed = [];
+let total = 0;
 for (const e of pending) {
+  if (total >= MAX_BATCH_BYTES) break;
   const tp = e.transcriptPath || '';
   if (!tp || !fs.existsSync(tp)) continue;
   const r = cp.spawnSync('node', [digester, tp], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const digest = (r.stdout || '').trim();
   if (!digest) continue;
   parts.push(`# === SESSION slug=${e.sessionId} date=${e.ts} cwd=${e.cwd} topic=${e.topic || ''} ===\n${digest}\n`);
+  total += digest.length;
   processed.push(e.sessionId);
 }
 if (!processed.length) { console.error('NO_USABLE'); process.exit(3); }

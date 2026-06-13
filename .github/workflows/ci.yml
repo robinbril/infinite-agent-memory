@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: "Node ${{ matrix.node }} on ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["20", "22"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Verify Node version
+        run: node --version
+
+      - name: Syntax check - hooks
+        run: |
+          node --check hooks/session-recall.js
+          node --check hooks/prompt-recall.js
+          node --check hooks/session-capture.js
+
+      - name: Syntax check - scripts
+        run: |
+          node --check scripts/build-index.js
+          node --check scripts/transcript-digest.js
+          node --check scripts/doctor.js
+
+      - name: Run test suite
+        # default discovery finds tests/*.test.js on all supported Node versions.
+        # No "|| true": a failing test must fail CI.
+        run: node --test
+
+      - name: Doctor smoke-check (Unix)
+        if: runner.os != 'Windows'
+        run: node scripts/doctor.js --memory-dir /tmp/agent-memory-ci || true
+
+      - name: Doctor smoke-check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: node scripts/doctor.js --memory-dir $env:TEMP\agent-memory-ci; exit 0

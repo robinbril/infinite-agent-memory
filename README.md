@@ -53,6 +53,13 @@ node graph/server.js .            # graph of the current repo (import graph)
 
 Opens a localhost page with a draggable, zoomable force-directed graph: pages colored by type, sized by inbound links, click for content preview, type to search.
 
+Or open the memory in Obsidian for backlinks, search and a polished graph: `scripts/obsidian-setup.sh` (or `.ps1` on Windows) registers it as a vault with the graph plugin enabled. On Windows with an Intel Arc iGPU, Obsidian needs `--disable-gpu-sandbox`; the script patches the shortcut. See [integrations/obsidian.md](integrations/obsidian.md).
+
+## Maintenance
+
+- **Index** (`scripts/build-index.js`): `--check` audits `index.md` for orphaned pages and dead links (exit 1 on problems); `--write` updates it in place, preserving handwritten hooks. Run it after a distill or wire it into CI.
+- **Parallel distill** (`scripts/distill-parallel.ps1` / `.sh`): runs each queued session in its own concurrent agent run (bounded pool), each writing only its own source and summary, then merges the index serially via `build-index.js`. Faster and more thorough than the single-batch run; good for backfills. The sequential `distill.ps1` stays the default for the nightly job.
+
 ## Design choices
 
 - **Lexical retrieval over embeddings.** The memory is small (hundreds of pages, not millions of chunks). BM25 with field weighting retrieves precisely at that scale, costs ~5ms, and removes a whole class of infrastructure. The hook's job is not search, it is deciding when NOT to inject.

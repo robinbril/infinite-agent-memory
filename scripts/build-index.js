@@ -135,7 +135,12 @@ function parseIndexLinks(indexText) {
 function runCheck(memDir, indexPath) {
   const pages = scanPages(memDir);
   let indexText = '';
-  try { indexText = fs.readFileSync(indexPath, 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n'); } catch (_) {}
+  try {
+    indexText = fs.readFileSync(indexPath, 'utf8')
+      .replace(/^﻿/, '')          // strip UTF-8 BOM
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+  } catch (_) {}
 
   const indexPaths = parseIndexPaths(indexText);
   const indexLines = indexText ? indexText.split('\n').length : 0;
@@ -185,7 +190,12 @@ function buildIndexLine(p) {
 function runWrite(memDir, indexPath) {
   const pages = scanPages(memDir);
   let indexText = '';
-  try { indexText = fs.readFileSync(indexPath, 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n'); } catch (_) {}
+  try {
+    indexText = fs.readFileSync(indexPath, 'utf8')
+      .replace(/^﻿/, '')          // strip UTF-8 BOM
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+  } catch (_) {}
 
   // Build lookup: rel -> existing index line (preserve handwritten hooks)
   const existingLine = new Map();
@@ -238,19 +248,26 @@ function runWrite(memDir, indexPath) {
     }
   }
 
-  // Reassemble index text
+  // Reassemble index text.
+  // Strip trailing blank lines from each section's content block so that the
+  // blank separator we emit here is the only whitespace between sections.
+  // This makes the output stable across repeated writes (idempotent).
   const out = [];
   for (const sec of sections) {
+    // Drop trailing blank lines from the lines array so we own all inter-section spacing.
+    let lines = sec.lines;
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines = lines.slice(0, -1);
+
     if (sec.heading === null) {
-      out.push(...sec.lines);
+      out.push(...lines);
     } else {
       out.push('');
       out.push(sec.heading);
-      out.push(...sec.lines);
+      out.push(...lines);
     }
   }
 
-  // Trim leading blank lines, ensure trailing newline
+  // Trim leading blank lines, ensure single trailing newline
   let result = out.join('\n').replace(/^\n+/, '') + '\n';
 
   // Write BOM-free UTF-8

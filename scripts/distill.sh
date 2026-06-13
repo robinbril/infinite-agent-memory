@@ -46,7 +46,7 @@ const entries = lines.map(l => { try { return JSON.parse(l); } catch (_) { retur
 const pending = entries.filter(e => !e.done).slice(0, Number(batchSize));
 // byte cap besides the session cap: a batch beyond ~250KB (~62k tokens) would
 // overflow the headless run's context; the remainder stays pending.
-const MAX_BATCH_BYTES = 250 * 1024;
+const MAX_BATCH_BYTES = 120 * 1024;
 const parts = [];
 const processed = [];
 let total = 0;

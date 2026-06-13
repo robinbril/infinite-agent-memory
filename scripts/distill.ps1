@@ -55,7 +55,7 @@ Log "start: $($pending.Count) session(s) to distill"
 # build the batch digest. Besides the session cap a byte cap applies: a batch
 # beyond ~250KB (~62k tokens) would overflow the headless run's context; the
 # remainder stays pending for the next round.
-$MAX_BATCH_BYTES = 250KB
+$MAX_BATCH_BYTES = 120KB
 $sb = New-Object System.Text.StringBuilder
 $processed = New-Object System.Collections.Generic.HashSet[string]
 foreach ($e in $pending) {

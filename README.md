@@ -38,11 +38,49 @@ Pages carry YAML frontmatter (`name`, `type`, `sources`, `links`, `updated`) and
 
 ## Install
 
-1. `mkdir ~/agent-memory && cp -r memory/* ~/agent-memory/` (or set `AGENT_MEMORY_DIR`).
-2. Wire the hooks: [integrations/claude-code.md](integrations/claude-code.md) for Claude Code (settings.json), [integrations/codex.md](integrations/codex.md) for Codex (AGENTS.md).
-3. Schedule the distill (Task Scheduler or cron), same docs.
+**One command** (requires Node 18+):
+
+```bash
+# macOS / Linux
+bash install.sh
+
+# Windows (PowerShell)
+pwsh install.ps1
+```
+
+That's it. The installer:
+- creates `~/agent-memory/` (or `$AGENT_MEMORY_DIR`) with the template structure, without overwriting existing data
+- merges the three Claude Code hooks into `~/.claude/settings.json` (existing keys are preserved)
+- registers a daily distill job (cron on macOS/Linux, Task Scheduler on Windows)
+
+Options:
+
+```bash
+bash install.sh --dry-run              # preview what would happen, no writes
+bash install.sh --memory-dir /my/path  # custom memory location
+bash install.sh --with-codex           # also wire ~/.codex/hooks.json
+
+pwsh install.ps1 -DryRun
+pwsh install.ps1 -MemoryDir D:\my-memory
+pwsh install.ps1 -WithCodex
+```
+
+To remove hook wiring (memory data is kept):
+
+```bash
+bash uninstall.sh          # macOS/Linux
+pwsh uninstall.ps1         # Windows
+```
 
 Requirements: Node 18+, and the agent CLI you distill with on PATH.
+
+### Manual install (fallback)
+
+If you prefer to wire things by hand:
+
+1. `mkdir ~/agent-memory && cp -r memory/* ~/agent-memory/` (or set `AGENT_MEMORY_DIR`).
+2. Wire the hooks: [integrations/claude-code.md](integrations/claude-code.md) for Claude Code (settings.json), [integrations/codex.md](integrations/codex.md) for Codex.
+3. Schedule the distill (Task Scheduler or cron), same docs.
 
 ## Graph view
 

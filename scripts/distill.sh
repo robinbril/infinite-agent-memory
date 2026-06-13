@@ -76,7 +76,7 @@ cd "$MEM_DIR"
 if [ -n "${DISTILL_AGENT_CMD:-}" ]; then
   printf '%s' "$PROMPT" | eval "$DISTILL_AGENT_CMD" >> "$LOG" 2>&1
 else
-  printf '%s' "$PROMPT" | claude -p --permission-mode acceptEdits \
+  printf '%s' "$PROMPT" | claude -p --model sonnet --permission-mode acceptEdits \
     --allowedTools 'Read' 'Write' 'Edit' 'Grep' 'Glob' >> "$LOG" 2>&1
 fi
 code=$?

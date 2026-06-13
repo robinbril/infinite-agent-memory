@@ -80,7 +80,7 @@ try {
   if ($env:DISTILL_AGENT_CMD) {
     $prompt | Invoke-Expression $env:DISTILL_AGENT_CMD 2>&1 | Out-File -FilePath $log -Append -Encoding utf8
   } else {
-    $prompt | & claude -p --permission-mode acceptEdits --allowedTools 'Read' 'Write' 'Edit' 'Grep' 'Glob' 2>&1 |
+    $prompt | & claude -p --model sonnet --permission-mode acceptEdits --allowedTools 'Read' 'Write' 'Edit' 'Grep' 'Glob' 2>&1 |
       Out-File -FilePath $log -Append -Encoding utf8
   }
   $code = $LASTEXITCODE

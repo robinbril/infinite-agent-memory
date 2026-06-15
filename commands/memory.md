@@ -1,0 +1,1 @@
+Invoke the `memory` skill. Dispatch by user intent (ingest / query / lint). Always read `<memory-dir>/SCHEMA.md` and `<memory-dir>/index.md` first, where `<memory-dir>` is `$AGENT_MEMORY_DIR` or `~/agent-memory`.

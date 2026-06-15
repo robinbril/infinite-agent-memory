@@ -5,6 +5,7 @@
 #   bash install.sh --dry-run
 #   bash install.sh --memory-dir /custom/path
 #   bash install.sh --with-codex
+#   bash install.sh --with-skills
 #   AGENT_MEMORY_DIR=/custom/path bash install.sh
 
 set -euo pipefail
@@ -14,6 +15,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEMORY_DIR="${AGENT_MEMORY_DIR:-$HOME/agent-memory}"
 DRY_RUN=0
 WITH_CODEX=0
+WITH_SKILLS=0
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 CODEX_HOOKS="$HOME/.codex/hooks.json"
 
@@ -22,6 +24,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)     DRY_RUN=1 ;;
     --with-codex)  WITH_CODEX=1 ;;
+    --with-skills) WITH_SKILLS=1 ;;
     --memory-dir)  MEMORY_DIR="$2"; shift ;;
     --memory-dir=*) MEMORY_DIR="${1#*=}" ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -291,6 +294,68 @@ NODEEOF
   fi
 fi
 
+# ── step 4.5: skills and slash commands (optional) ───────────────────────────
+echo ""
+echo "==> Skills and commands"
+if [[ $WITH_SKILLS -eq 1 ]]; then
+  # skill: memory
+  SKILL_MEMORY_SRC="${REPO_DIR}/skills/memory/SKILL.md"
+  SKILL_MEMORY_DEST="$HOME/.claude/skills/memory/SKILL.md"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    dry "create ~/.claude/skills/memory/ if needed"
+    dry "copy skills/memory/SKILL.md to $SKILL_MEMORY_DEST (skip if exists)"
+  else
+    mkdir -p "$(dirname "$SKILL_MEMORY_DEST")"
+    if [[ -f "$SKILL_MEMORY_DEST" ]]; then
+      ok "skills/memory/SKILL.md already present, not overwriting"
+    else
+      cp "$SKILL_MEMORY_SRC" "$SKILL_MEMORY_DEST"
+      ok "copied skills/memory/SKILL.md"
+    fi
+  fi
+
+  # skill: graph
+  SKILL_GRAPH_SRC="${REPO_DIR}/skills/graph/SKILL.md"
+  SKILL_GRAPH_DEST="$HOME/.claude/skills/graph/SKILL.md"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    dry "create ~/.claude/skills/graph/ if needed"
+    dry "copy skills/graph/SKILL.md to $SKILL_GRAPH_DEST (skip if exists)"
+  else
+    mkdir -p "$(dirname "$SKILL_GRAPH_DEST")"
+    if [[ -f "$SKILL_GRAPH_DEST" ]]; then
+      ok "skills/graph/SKILL.md already present, not overwriting"
+    else
+      cp "$SKILL_GRAPH_SRC" "$SKILL_GRAPH_DEST"
+      ok "copied skills/graph/SKILL.md"
+    fi
+  fi
+
+  # slash commands
+  COMMANDS_SRC="${REPO_DIR}/commands"
+  COMMANDS_DEST="$HOME/.claude/commands"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    dry "create ~/.claude/commands/ if needed"
+    for f in "$COMMANDS_SRC"/*.md; do
+      fname="$(basename "$f")"
+      dry "copy commands/$fname to $COMMANDS_DEST/$fname (skip if exists)"
+    done
+  else
+    mkdir -p "$COMMANDS_DEST"
+    for f in "$COMMANDS_SRC"/*.md; do
+      fname="$(basename "$f")"
+      dest_f="$COMMANDS_DEST/$fname"
+      if [[ -f "$dest_f" ]]; then
+        ok "commands/$fname already present, not overwriting"
+      else
+        cp "$f" "$dest_f"
+        ok "copied commands/$fname"
+      fi
+    done
+  fi
+else
+  log "pass --with-skills to install skill definitions and slash commands"
+fi
+
 # ── step 5: schedule the distill ─────────────────────────────────────────────
 echo ""
 echo "==> Distill schedule"
@@ -324,6 +389,8 @@ echo ""
 echo "  Memory dir : $MEMORY_DIR"
 echo "  settings   : $CLAUDE_SETTINGS"
 [[ $WITH_CODEX -eq 1 ]] && echo "  Codex hooks: $CODEX_HOOKS"
+[[ $WITH_SKILLS -eq 1 ]] && echo "  Skills     : ~/.claude/skills/memory, ~/.claude/skills/graph"
+[[ $WITH_SKILLS -eq 1 ]] && echo "  Commands   : ~/.claude/commands/"
 if [[ -n "$NODE_BIN" ]]; then
   echo "  Node       : $NODE_BIN $NODE_VER [ok]"
 else

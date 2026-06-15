@@ -1,23 +1,23 @@
 # Quick start
 
-Get up and running in one command.
+Get the full memory system running in one command.
 
 ## 1. Clone and install
 
 ```bash
-git clone https://github.com/your-org/infinite-agent-memory
+git clone https://github.com/robinbril/infinite-agent-memory
 cd infinite-agent-memory
-bash install.sh          # macOS / Linux
-```
 
-```powershell
+# macOS / Linux
+bash install.sh --with-skills
+
 # Windows (PowerShell)
-pwsh install.ps1
+pwsh install.ps1 -WithSkills
 ```
 
-The installer creates `~/agent-memory/`, merges the three hooks into
-`~/.claude/settings.json`, and registers a daily distill job. No npm install
-needed.
+The installer creates `~/agent-memory/`, merges the three hooks into `~/.claude/settings.json`, copies the skill definitions and slash commands, and registers a daily distill job. No npm install needed.
+
+The `--with-skills` flag installs agent skill definitions and `/memory-*` slash commands. Without it, only the automatic hooks (capture, recall, distill scheduling) are wired.
 
 ## 2. Verify
 
@@ -25,52 +25,60 @@ needed.
 node scripts/doctor.js
 ```
 
-Prints a PASS/WARN/FAIL report for every component. Fix any FAIL items before
-starting a session.
+Prints a PASS/WARN/FAIL report for every component. Fix any FAIL items before starting a session.
 
 ## 3. Start a session
 
-Open Claude Code in any project directory. The memory hooks are active
-automatically. Session recall happens at startup; prompt recall fires
-silently on every prompt; capture queues substantial sessions at end.
+Open Claude Code in any project directory. The memory hooks are active automatically:
+- **Session start**: the memory index loads into context
+- **Every prompt**: relevant pages are injected silently when they match
+- **Session end**: substantial sessions are queued for distillation
 
-## Options
+## 4. Use the slash commands
 
-Custom memory location:
+With `--with-skills` installed:
 
-```bash
-bash install.sh --memory-dir /path/to/memory
-# then:
-node scripts/doctor.js --memory-dir /path/to/memory
+```
+/memory-query what do we know about the auth middleware?
+/memory-ingest
+/memory-lint
 ```
 
-Preview without writing anything:
-
-```bash
-bash install.sh --dry-run
-```
-
-Also wire Codex:
-
-```bash
-bash install.sh --with-codex
-```
-
-## Graph and Obsidian
+## 5. Graph and Obsidian
 
 ```bash
 node graph/server.js          # wikilink graph of the memory
 node graph/server.js .        # import graph of the current repo
 ```
 
-Obsidian vault setup (registers the memory as a vault with the graph plugin):
+Obsidian vault setup:
 
 ```bash
 bash scripts/obsidian-setup.sh       # macOS / Linux
 pwsh scripts/obsidian-setup.ps1      # Windows
 ```
 
+## Options
+
+Custom memory location:
+
+```bash
+bash install.sh --memory-dir /path/to/memory --with-skills
+node scripts/doctor.js --memory-dir /path/to/memory
+```
+
+Preview without writing anything:
+
+```bash
+bash install.sh --dry-run --with-skills
+```
+
+Also wire Codex:
+
+```bash
+bash install.sh --with-codex --with-skills
+```
+
 ## Further reading
 
-See [README.md](README.md) for the full design, manual install instructions,
-maintenance scripts, and design rationale.
+See [README.md](README.md) for the full design, recall algorithm, maintenance scripts, and architecture.

@@ -29,13 +29,15 @@
   pwsh install.ps1 --DryRun
   pwsh install.ps1 --MemoryDir D:\my-memory
   pwsh install.ps1 --WithCodex
+  pwsh install.ps1 --WithSkills
 #>
 
 [CmdletBinding()]
 param(
     [string]  $MemoryDir  = "",
     [switch]  $DryRun,
-    [switch]  $WithCodex
+    [switch]  $WithCodex,
+    [switch]  $WithSkills
 )
 
 Set-StrictMode -Version Latest
@@ -309,6 +311,55 @@ if ($WithCodex) {
     Invoke-JsonMerge -SettingsPath $CodexHooks -RepoPath $RepoDirFwd -IsCodex $true -IsDryRun ([bool]$DryRun)
 }
 
+# ── step 4.5: skills and slash commands (optional) ───────────────────────────
+Write-Host ""
+Write-Host "==> Skills and commands"
+if ($WithSkills) {
+    # skill: memory
+    $skillMemorySrc  = Join-Path $RepoDir "skills\memory\SKILL.md"
+    $skillMemoryDest = Join-Path $HOME ".claude\skills\memory\SKILL.md"
+    if (Test-Path $skillMemoryDest) {
+        Log-Ok "skills/memory/SKILL.md already present, not overwriting"
+    } elseif (Test-Path $skillMemorySrc) {
+        Invoke-OrDry "copy skills/memory/SKILL.md to $skillMemoryDest" {
+            New-Item -ItemType Directory -Path (Split-Path $skillMemoryDest) -Force | Out-Null
+            Copy-Item $skillMemorySrc $skillMemoryDest
+            Log-Ok "copied skills/memory/SKILL.md"
+        }
+    }
+
+    # skill: graph
+    $skillGraphSrc  = Join-Path $RepoDir "skills\graph\SKILL.md"
+    $skillGraphDest = Join-Path $HOME ".claude\skills\graph\SKILL.md"
+    if (Test-Path $skillGraphDest) {
+        Log-Ok "skills/graph/SKILL.md already present, not overwriting"
+    } elseif (Test-Path $skillGraphSrc) {
+        Invoke-OrDry "copy skills/graph/SKILL.md to $skillGraphDest" {
+            New-Item -ItemType Directory -Path (Split-Path $skillGraphDest) -Force | Out-Null
+            Copy-Item $skillGraphSrc $skillGraphDest
+            Log-Ok "copied skills/graph/SKILL.md"
+        }
+    }
+
+    # slash commands
+    $commandsSrc  = Join-Path $RepoDir "commands"
+    $commandsDest = Join-Path $HOME ".claude\commands"
+    foreach ($f in (Get-ChildItem -Path $commandsSrc -Filter "*.md" -File)) {
+        $destFile = Join-Path $commandsDest $f.Name
+        if (Test-Path $destFile) {
+            Log-Ok "commands/$($f.Name) already present, not overwriting"
+        } else {
+            Invoke-OrDry "copy commands/$($f.Name) to $commandsDest" {
+                New-Item -ItemType Directory -Path $commandsDest -Force | Out-Null
+                Copy-Item $f.FullName $destFile
+                Log-Ok "copied commands/$($f.Name)"
+            }
+        }
+    }
+} else {
+    Log-Info "pass -WithSkills to install skill definitions and slash commands"
+}
+
 # ── step 5: Task Scheduler for daily distill ──────────────────────────────────
 Write-Host ""
 Write-Host "==> Task Scheduler: Memory-Distill-daily"
@@ -346,7 +397,9 @@ if ($DryRun) {
 Write-Host ""
 Write-Host "  Memory dir : $MemoryDir"
 Write-Host "  settings   : $ClaudeSettings"
-if ($WithCodex) { Write-Host "  Codex hooks: $CodexHooks" }
+if ($WithCodex)  { Write-Host "  Codex hooks: $CodexHooks" }
+if ($WithSkills) { Write-Host "  Skills     : ~/.claude/skills/memory, ~/.claude/skills/graph" }
+if ($WithSkills) { Write-Host "  Commands   : ~/.claude/commands/" }
 if ($NodeBin) {
     Write-Host "  Node       : $NodeBin $NodeVer [ok]"
 } else {

@@ -1,0 +1,22 @@
+# PII gazetteer (example)
+#
+# Copy this file to $AGENT_MEMORY_DIR/_pii-gazetteer.txt and replace the names
+# below with the real names you want pseudonymized in the distill pipeline.
+# The real file is gitignored and never committed.
+#
+# One name per line. Blank lines and lines starting with '#' are ignored.
+# List full names AND the bare first name when you want both matched; the
+# matcher tries the longest name first, so "Jane Doe" wins over "Jane".
+#
+# The NL-style name heuristic, BSN eleven-proof and structural guards always
+# run regardless of this list. The gazetteer just catches names the heuristic
+# would miss (single first names, non-Latin scripts, unusual casing).
+
+Jane Doe
+John Smith
+Alex Johnson
+Jane
+John
+Alex
+Sam
+Taylor

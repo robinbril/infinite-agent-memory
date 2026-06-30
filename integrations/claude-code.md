@@ -67,3 +67,23 @@ echo '{"prompt":"<a question about something in your memory>","session_id":"t1",
 ```
 
 A relevant page should print inside `<memory-recall>` tags. A generic prompt ("ok go ahead") should print nothing: silence is the designed default.
+
+## 5. Optional: dense recall upgrade
+
+The BM25 core needs nothing beyond Node. If you want semantic recall on top (paraphrased prompts that share no keywords with a page), the `scripts/rag/` Python module adds a local embedding layer that fuses with BM25 via reciprocal-rank fusion.
+
+Quick version:
+
+```bash
+pip install fastembed numpy
+python scripts/rag/build_index.py          # build the vector index (_vec.json)
+python scripts/rag/embed_server.py         # start the local embed service (keep running)
+```
+
+Then enable fusion by adding the flag to the `env` block in `~/.claude/settings.json`:
+
+```json
+{ "env": { "AGENT_MEMORY_DENSE": "1" } }
+```
+
+The hook stays exactly the BM25 behaviour when the flag is unset, and falls back to BM25 if the embed service or `_vec.json` is unavailable. Full setup, PII routing, and scheduling: [scripts/rag/README.md](../scripts/rag/README.md).

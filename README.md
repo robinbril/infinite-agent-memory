@@ -338,6 +338,14 @@ The constants at the top of `hooks/prompt-recall.js` control all recall behavior
 
 The BM25 field weights (`FIELD` object: title 5, head 3, keyfact 2, body 1) control how much each section of a page contributes to its score. Title words dominate because they carry the most signal about what a page is about.
 
+## Optional: dense recall layer
+
+For larger memories where paraphrased queries slip past pure lexical matching, an opt-in Python module (`scripts/rag/`) adds **local embeddings** on top of the BM25 core. A warm MiniLM service embeds the prompt, cosine-matches it against a per-page vector index, and the recall hook fuses both rankings with reciprocal-rank fusion. A page can then surface on semantic similarity even when it shares no keywords with the prompt.
+
+It stays fully local (no external API) and is off by default. The hook only uses it when `AGENT_MEMORY_DENSE=1` AND the embed service plus `_vec.json` are present; any failure falls back to the proven BM25 path, so enabling it cannot break recall. The module also ships local-first distillation jobs (PII routing with eleven-proof BSN redaction, local Ollama distill, auto-tagging/clustering, ingest, lint).
+
+See [scripts/rag/README.md](scripts/rag/README.md) for install, activation, and scheduling.
+
 ## Design choices
 
 - **Lexical retrieval over embeddings.** The memory is small (hundreds of pages, not millions of chunks). BM25 with field weighting retrieves precisely at that scale, costs ~5ms, and removes a whole class of infrastructure.

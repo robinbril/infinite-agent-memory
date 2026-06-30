@@ -13,6 +13,11 @@
  * Cache:  <memory>/_recall-index.json   (rebuilt on change)
  * State:  <memory>/_recall-state/<session>.json  (per-session dedup)
  *
+ * Optional dense layer (off unless AGENT_MEMORY_DENSE is set AND the embed
+ * service + <memory>/_vec.json exist): fuses BM25 with local embedding cosine
+ * via reciprocal-rank fusion. Any hiccup falls back to the proven BM25 path,
+ * so recall never breaks. See scripts/rag/ for the dense layer setup.
+ *
  * Hard rule: always exit 0. exit 2 would block the prompt. No output is valid.
  */
 'use strict';
@@ -39,6 +44,17 @@ const MAX_PAGES = 2, SECOND_RATIO = 0.75;
 const CHAR_CAP = 2800, EXTRACT_CAP = 1400, TF_CAP = 300;
 const REINJECT_AFTER = 30, STATE_TTL_DAYS = 7;
 const MIN_PROMPT_CHARS = 15, MIN_TOKENS = 2;
+
+// --- dense layer (optional hybrid BM25 + local embeddings) ---
+// Off => exactly the proven BM25 behaviour. On requires the local embed service
+// (scripts/rag/embed_server.py) and <memory>/_vec.json. Any failure falls back
+// to BM25. Enable with AGENT_MEMORY_DENSE=1.
+const DENSE_ON = process.env.AGENT_MEMORY_DENSE === '1' || process.env.AGENT_MEMORY_DENSE === 'true';
+const VEC_PATH = path.join(memDir, '_vec.json');
+const EMBED_URL = process.env.AGENT_MEMORY_EMBED_URL || 'http://127.0.0.1:11435/embed';
+const RRF_K = 60;            // reciprocal-rank-fusion constant
+const DENSE_FLOOR = 0.42;    // min cosine for dense admission (off-topic stays below)
+const EMBED_TIMEOUT_MS = 1200;
 
 // English + Dutch stopwords; extend for your language if needed.
 const STOP = new Set(('de het een van voor met aan op in te en of als dat die deze dit der des den ' +
@@ -224,6 +240,86 @@ function writeAtomic(target, data) {
   } catch (_) {}
 }
 
+// --- dense helpers (only used when the dense layer is active) ---
+
+function cosine(a, b) {
+  let s = 0, na = 0, nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) { s += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return s / (Math.sqrt(na) * Math.sqrt(nb) + 1e-9);
+}
+
+function loadVec() {
+  try {
+    const v = JSON.parse(fs.readFileSync(VEC_PATH, 'utf8'));
+    return v && v.vectors ? v.vectors : null;
+  } catch (_) { return null; }
+}
+
+// Query embedding via the local service, synchronous within budget. Returns null
+// on any hiccup, so the caller falls back to pure BM25.
+function embedQuerySync(text) {
+  try {
+    const { execFileSync } = require('child_process');
+    const out = execFileSync('curl', ['-s', '--max-time', '1', '-X', 'POST', EMBED_URL,
+      '-H', 'Content-Type: application/json',
+      '-d', JSON.stringify({ texts: [String(text).slice(0, 2000)] })],
+      { timeout: EMBED_TIMEOUT_MS, encoding: 'utf8', windowsHide: true });
+    const j = JSON.parse(out);
+    return j && Array.isArray(j.embeddings) && j.embeddings[0] ? j.embeddings[0] : null;
+  } catch (_) { return null; }
+}
+
+// Pick the pages to inject. Without cosByPath this is exactly the proven BM25
+// path (gate 2 + 3 + the higher page-2 bar). With cosByPath it runs RRF fusion
+// over a pool of BM25 candidates (s>0) plus pages the dense layer rates highly
+// that BM25 missed entirely (s=0). A page passes the gate on EITHER the strict
+// BM25 gate (onTopic + score) OR a cosine above DENSE_FLOOR (empirically
+// separated from off-topic, so no lexical anchor needed).
+function selectPicks(ranked, cosByPath, allDocs) {
+  if (!cosByPath) {
+    const top = ranked[0];
+    if (!top || top.norm < SCORE_MIN || !top.onTopic) return [];
+    const picks = [top];
+    const second = ranked[1];
+    if (second && second.norm >= top.norm * SECOND_RATIO &&
+        second.norm >= SCORE_MIN && second.onTopic &&
+        (top.slugExact ? second.slugExact : true)) {
+      picks.push(second);
+    }
+    return picks;
+  }
+
+  const inRanked = new Set(ranked.map(r => r.doc.path));
+  const pool = ranked.map(r => ({
+    doc: r.doc, norm: r.norm, onTopic: r.onTopic, cos: cosByPath[r.doc.path] || 0,
+  }));
+  for (const d of allDocs) {
+    if (inRanked.has(d.path)) continue;
+    const c = cosByPath[d.path] || 0;
+    if (c >= DENSE_FLOOR) pool.push({ doc: d, norm: 0, onTopic: false, cos: c });
+  }
+  if (!pool.length) return [];
+
+  const byBm = [...pool].sort((a, b) => b.norm - a.norm);
+  const byDe = [...pool].sort((a, b) => b.cos - a.cos);
+  const rankBm = new Map(byBm.map((e, i) => [e.doc.path, i]));
+  const rankDe = new Map(byDe.map((e, i) => [e.doc.path, i]));
+  for (const e of pool) {
+    e.rrf = 1 / (RRF_K + rankBm.get(e.doc.path)) + 1 / (RRF_K + rankDe.get(e.doc.path));
+  }
+  pool.sort((a, b) => b.rrf - a.rrf);
+
+  const passes = e => (e.onTopic && e.norm >= SCORE_MIN) || e.cos >= DENSE_FLOOR;
+  const sel = [];
+  for (const e of pool) {
+    if (!passes(e)) continue;
+    sel.push(e);
+    if (sel.length >= MAX_PAGES) break;
+  }
+  return sel;
+}
+
 // --- scoring ---
 
 function score(qTokens, index) {
@@ -330,23 +426,30 @@ function main() {
   if (Date.now() > DEADLINE) return;
 
   const ranked = score(qTokens, index);
-  if (!ranked.length) return;
 
-  // gate 2 + 3: score threshold + on-topic (specific subject match)
-  const top = ranked[0];
-  if (top.norm < SCORE_MIN || !top.onTopic) return;
-
-  // page 2 is the usual noise source, so it must clear a higher bar. If the top
-  // page is a named entity the prompt explicitly named (slugExact), a second page
-  // is only justified when the prompt names a SECOND entity too; otherwise a
-  // conceptual query may legitimately span two related pages.
-  const picks = [top];
-  const second = ranked[1];
-  if (second && second.norm >= top.norm * SECOND_RATIO &&
-      second.norm >= SCORE_MIN && second.onTopic &&
-      (top.slugExact ? second.slugExact : true)) {
-    picks.push(second);
+  // dense fusion (optional): embed the query via the local service and cosine it
+  // against every page vector. If the service fails or _vec.json is missing,
+  // cosByPath stays null and selectPicks falls back to the proven BM25 path
+  // (gate 2 + 3 + the higher page-2 bar).
+  let cosByPath = null;
+  if (DENSE_ON && Date.now() < DEADLINE - 200) {
+    const qv = embedQuerySync(prompt);
+    const vec = qv && loadVec();
+    if (vec) {
+      cosByPath = {};
+      for (const d of index.docs) {
+        const v = vec[d.path];
+        if (v) cosByPath[d.path] = cosine(qv, v);
+      }
+    }
   }
+
+  if (!ranked.length && !cosByPath) return;
+  // gate 2 + 3 (+ dense admission when active): selectPicks applies the score
+  // threshold, on-topic test and the higher page-2 bar; with cosByPath it adds
+  // RRF fusion and the cosine floor.
+  const picks = selectPicks(ranked, cosByPath, index.docs);
+  if (!picks.length) return;
 
   // session dedup
   const isFirstPrompt = !fs.existsSync(path.join(stateDir, sessionId + '.json'));

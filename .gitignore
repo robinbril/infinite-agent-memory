@@ -4,3 +4,10 @@ _capture-queue.jsonl
 _distill-batch.md*
 _logs/
 .obsidian/
+
+# optional dense RAG layer (scripts/rag/): all local, never committed
+_pii-gazetteer.txt
+_pii-map.json
+_vec.json
+_server.log
+__pycache__/

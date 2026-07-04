@@ -78,7 +78,12 @@ $prompt = (Get-Content $promptF -Raw) -replace '\{\{MEMORY_DIR\}\}', $memDir
 Push-Location $memDir
 try {
   if ($env:DISTILL_AGENT_CMD) {
-    $prompt | Invoke-Expression $env:DISTILL_AGENT_CMD 2>&1 | Out-File -FilePath $log -Append -Encoding utf8
+    # Invoke-Expression binds no pipeline input; wrap the command in a script block
+    # that pipes $input through, so the agent actually receives the prompt on stdin
+    # and $LASTEXITCODE reflects the agent, not a stale value.
+    $global:LASTEXITCODE = 0
+    $agentBlock = [ScriptBlock]::Create('$input | ' + $env:DISTILL_AGENT_CMD)
+    $prompt | & $agentBlock 2>&1 | Out-File -FilePath $log -Append -Encoding utf8
   } else {
     $prompt | & claude -p --model sonnet --permission-mode acceptEdits --allowedTools 'Read' 'Write' 'Edit' 'Grep' 'Glob' 2>&1 |
       Out-File -FilePath $log -Append -Encoding utf8

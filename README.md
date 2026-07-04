@@ -346,6 +346,18 @@ It stays fully local (no external API) and is off by default. The hook only uses
 
 See [scripts/rag/README.md](scripts/rag/README.md) for install, activation, and scheduling.
 
+## How this differs from Mem0, Letta and Zep
+
+| | infinite-agent-memory | Mem0 / Letta / Zep |
+|---|---|---|
+| Runtime | None: hooks fire on prompt, a scheduled job distills | A server (and usually a vector DB) must be running |
+| Storage | Plain Markdown files you can grep, diff and take with you | Database rows or graph entries behind an API |
+| Recall cost | ~50ms local BM25, no API call, no key | API round-trip to a memory service |
+| Distillation | Runs on the agent seat you already pay for | Separate LLM calls billed per memory operation |
+| Lock-in | Delete the hooks and keep the Markdown | Export path depends on the vendor |
+
+If you need multi-tenant memory served over an API to many agents, those platforms are the right tool. If you want one agent (or a small set of tools) to remember things across sessions with zero infrastructure, this is.
+
 ## Design choices
 
 - **Lexical retrieval over embeddings.** The memory is small (hundreds of pages, not millions of chunks). BM25 with field weighting retrieves precisely at that scale, costs ~5ms, and removes a whole class of infrastructure.

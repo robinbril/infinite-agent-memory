@@ -33,6 +33,16 @@ const REPO_ROOT   = path.join(__dirname, '..');
 const DISTILL_PS1 = path.join(REPO_ROOT, 'scripts', 'distill.ps1');
 const DISTILL_SH  = path.join(REPO_ROOT, 'scripts', 'distill.sh');
 
+// PowerShell binary for this platform: windows ships `powershell`, GitHub's
+// Linux/macOS runners ship `pwsh`. Null means: skip the .ps1 e2e tests here.
+const PWSH = (() => {
+  const { spawnSync } = require('child_process');
+  if (process.platform === 'win32') return 'powershell';
+  const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { stdio: 'ignore' });
+  return probe.status === 0 ? 'pwsh' : null;
+})();
+
+
 let tmpDirs = [];
 after(() => { for (const d of tmpDirs) rmDir(d); });
 
@@ -164,11 +174,12 @@ describe('distill scripts: DISTILL_PROMPT override contract', () => {
 describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () => {
 
   it('marks queued entries done and cleans up the lock file after a run', () => {
+    if (!PWSH) return; // no PowerShell on this platform (pwsh not installed)
     const tmpRoot = freshTmp('distill-e2e');
     const { memDir, queuePath } = makeDistillFixture(tmpRoot, 2);
     const agentPath = writeFakeAgent(memDir);
 
-    const { code } = run('powershell', ['-NoProfile', '-File', DISTILL_PS1], {
+    const { code } = run(PWSH, ['-NoProfile', '-File', DISTILL_PS1], {
       env: {
         AGENT_MEMORY_DIR: memDir,
         DISTILL_AGENT_CMD: `node "${agentPath}"`,
@@ -194,11 +205,12 @@ describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () 
   });
 
   it('does nothing when the capture queue file does not exist', () => {
+    if (!PWSH) return; // no PowerShell on this platform (pwsh not installed)
     const tmpRoot = freshTmp('distill-noqueue');
     const memDir = path.join(tmpRoot, 'memroot');
     fs.mkdirSync(memDir, { recursive: true });
 
-    const { code } = run('powershell', ['-NoProfile', '-File', DISTILL_PS1], {
+    const { code } = run(PWSH, ['-NoProfile', '-File', DISTILL_PS1], {
       env: { AGENT_MEMORY_DIR: memDir },
     });
 
@@ -210,13 +222,14 @@ describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () 
   });
 
   it('does nothing when the queue has no pending (undone) entries', () => {
+    if (!PWSH) return; // no PowerShell on this platform (pwsh not installed)
     const tmpRoot = freshTmp('distill-alldone');
     const { memDir, queuePath } = makeDistillFixture(tmpRoot, 1);
     // mark the only entry already done
     const entries = readQueue(queuePath).map(e => ({ ...e, done: true }));
     fs.writeFileSync(queuePath, entries.map(e => JSON.stringify(e)).join('\n') + '\n');
 
-    const { code } = run('powershell', ['-NoProfile', '-File', DISTILL_PS1], {
+    const { code } = run(PWSH, ['-NoProfile', '-File', DISTILL_PS1], {
       env: { AGENT_MEMORY_DIR: memDir },
     });
 
@@ -231,12 +244,13 @@ describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () 
   });
 
   it('respects a fresh lock file: does not start a second run within the 2h window', () => {
+    if (!PWSH) return; // no PowerShell on this platform (pwsh not installed)
     const tmpRoot = freshTmp('distill-lock');
     const { memDir } = makeDistillFixture(tmpRoot, 1);
     const batchFile = path.join(memDir, '_distill-batch.md');
     fs.writeFileSync(batchFile, 'in-progress lock content');
 
-    const { code } = run('powershell', ['-NoProfile', '-File', DISTILL_PS1], {
+    const { code } = run(PWSH, ['-NoProfile', '-File', DISTILL_PS1], {
       env: { AGENT_MEMORY_DIR: memDir },
     });
 
@@ -249,6 +263,7 @@ describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () 
   });
 
   it('removes a stale lock file (older than the 2h window) before re-checking it', () => {
+    if (!PWSH) return; // no PowerShell on this platform (pwsh not installed)
     // This scenario intentionally leaves DISTILL_AGENT_CMD unset, so the
     // script falls back to the real default `claude -p ...` command. Whether
     // that headless call itself succeeds depends on the local `claude` CLI
@@ -269,7 +284,7 @@ describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () 
     const staleTime = new Date(Date.now() - 3 * 60 * 60 * 1000);
     fs.utimesSync(batchFile, staleTime, staleTime);
 
-    run('powershell', ['-NoProfile', '-File', DISTILL_PS1], {
+    run(PWSH, ['-NoProfile', '-File', DISTILL_PS1], {
       env: { AGENT_MEMORY_DIR: memDir },
     });
 
@@ -290,6 +305,7 @@ describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () 
   });
 
   it('skips a queue entry whose transcript file is missing, without crashing', () => {
+    if (!PWSH) return; // no PowerShell on this platform (pwsh not installed)
     const tmpRoot = freshTmp('distill-missing-transcript');
     const memDir = path.join(tmpRoot, 'memroot');
     for (const sub of ['entities', 'concepts', 'summaries', 'sources', '_logs']) {
@@ -306,7 +322,7 @@ describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () 
       done: false,
     }) + '\n');
 
-    const { code } = run('powershell', ['-NoProfile', '-File', DISTILL_PS1], {
+    const { code } = run(PWSH, ['-NoProfile', '-File', DISTILL_PS1], {
       env: { AGENT_MEMORY_DIR: memDir },
     });
 

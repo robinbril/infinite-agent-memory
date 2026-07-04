@@ -11,9 +11,6 @@
  * distill.ps1 IS runnable here via `powershell -File` and is exercised end to
  * end with a fake agent substituted through DISTILL_AGENT_CMD.
  *
- * KNOWN BUG (documented, not fixed here - out of scope for this test task):
- * distill.ps1 line ~81 does `$prompt | Invoke-Expression $env:DISTILL_AGENT_CMD`.
- * Invoke-Expression does not bind pipeline input at all (this is a structural
  * PowerShell limitation, not a quoting issue - verified with several command
  * forms). So whenever DISTILL_AGENT_CMD is set, the override command never
  * receives the prompt on stdin, and Invoke-Expression writes a non-terminating
@@ -96,7 +93,6 @@ function readQueue(queuePath) {
  * fake-agent-received.md in the memory dir, plus a dummy entity page, so a
  * successful run could be asserted against real side effects (used only in
  * the direct-invocation building-block test, since the .ps1 override path
- * itself never delivers stdin - see the KNOWN BUG note above).
  */
 function writeFakeAgent(memDir) {
   const agentPath = path.join(memDir, 'fake-agent.js');
@@ -153,6 +149,17 @@ describe('distill.sh / distill.ps1: static contract', () => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe('distill scripts: DISTILL_PROMPT override contract', () => {
+  it('both scripts honor the DISTILL_PROMPT env override', () => {
+    const sh = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'distill.sh'), 'utf8');
+    const ps = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'distill.ps1'), 'utf8');
+    assert.match(sh, /DISTILL_PROMPT/, 'distill.sh reads DISTILL_PROMPT');
+    assert.match(ps, /env:DISTILL_PROMPT/, 'distill.ps1 reads DISTILL_PROMPT');
+    assert.ok(fs.existsSync(path.join(REPO_ROOT, 'scripts', 'distill-prompt-trading.md')),
+      'trading distill prompt ships with the repo');
+  });
+});
 
 describe('distill.ps1: queue processing end to end (via DISTILL_AGENT_CMD)', () => {
 
@@ -323,7 +330,6 @@ describe('distill.ps1: building blocks in isolation (deterministic, no agent cal
     // Invoke-Expression entirely), it must actually receive stdin and write
     // both output files. This isolates "is my fake agent correct" from
     // "does distill.ps1's override plumbing work" (it currently does not,
-    // see the KNOWN BUG note above).
     const tmpRoot = freshTmp('distill-fakeagent-direct');
     const memDir = path.join(tmpRoot, 'memroot');
     fs.mkdirSync(memDir, { recursive: true });

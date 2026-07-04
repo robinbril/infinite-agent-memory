@@ -37,7 +37,8 @@ param(
     [string]  $MemoryDir  = "",
     [switch]  $DryRun,
     [switch]  $WithCodex,
-    [switch]  $WithSkills
+    [switch]  $WithSkills,
+    [switch]  $NoSchedule
 )
 
 Set-StrictMode -Version Latest
@@ -385,7 +386,9 @@ Write-Host ""
 Write-Host "==> Task Scheduler: Memory-Distill-daily"
 
 $distillScript = Join-Path $RepoDir "scripts\distill.ps1"
-if (Test-Path $distillScript) {
+if ($NoSchedule) {
+    Log-Warn "-NoSchedule: skipping the system-wide Task Scheduler job"
+} elseif (Test-Path $distillScript) {
     $taskName = "Memory-Distill-daily"
     $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($existingTask) {

@@ -259,11 +259,31 @@ function captureQueueCheck() {
   }
 }
 
+function checkDistillSchedule() {
+  // distill schedule registered? (cron on Unix, Task Scheduler on Windows)
+  const { execSync } = require('child_process');
+  if (process.platform === 'win32') {
+    try {
+      execSync('schtasks /query /tn Memory-Distill-daily', { stdio: 'pipe' });
+      pass('Distill schedule', 'Task Scheduler job Memory-Distill-daily found');
+    } catch (_) {
+      warn('Distill schedule', 'no Task Scheduler job Memory-Distill-daily; run install.ps1 or schedule scripts/distill.ps1 yourself');
+    }
+  } else {
+    try {
+      const cron = execSync('crontab -l', { stdio: 'pipe' }).toString();
+      if (cron.includes('distill')) pass('Distill schedule', 'found in crontab');
+      else warn('Distill schedule', 'crontab has no distill entry; run install.sh or add it yourself');
+    } catch (_) {
+      warn('Distill schedule', 'crontab unavailable; schedule scripts/distill.sh some other way');
+    }
+  }
+}
+
 // ---- report ----
 
 function printReport() {
   const WIDTH = 56;
-  const PAD = 8; // width of "[  PASS  ]"
 
   console.log('');
   console.log('infinite-agent-memory doctor');
@@ -317,7 +337,8 @@ function main() {
   memoryDirEnvCheck();
   scriptSyntaxChecks();
 
-  printReport();
+  checkDistillSchedule();
+printReport();
 
   const hasFail = results.some(r => r.status === 'FAIL');
   process.exit(hasFail ? 1 : 0);

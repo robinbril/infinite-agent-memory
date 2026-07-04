@@ -45,7 +45,7 @@ Hook: `hooks/prompt-recall.js` fires on `UserPromptSubmit`.
 The hook receives the user's prompt on stdin as JSON:
 
 ```json
-{"prompt": "the rate limiter is rejecting valid requests from the batch endpoint", "session_id": "abc123", "cwd": "/home/user/api-server"}
+{"prompt": "why is rate limiting rejecting valid requests from the batch endpoint", "session_id": "abc123", "cwd": "/home/user/api-server"}
 ```
 
 It tokenizes the prompt, scores every page in the memory using field-weighted BM25 (title words count 5x, headers 3x, key facts 2x, body 1x), and runs three gates:
@@ -53,6 +53,8 @@ It tokenizes the prompt, scores every page in the memory using field-weighted BM
 1. **Score gate**: normalized BM25 score must be >= 0.30
 2. **On-topic gate**: at least two title words match ("rate" + "limiting"), OR two discriminating terms (words rare in the corpus), OR the exact slug appears in the prompt
 3. **Dedup gate**: this page was not already injected in the last 30 prompts of this session
+
+Nothing injected and you expected something? Run the hook with `AGENT_MEMORY_DEBUG=1` to see every candidate, its score and which gate rejected it on stderr. Silence is a deliberate design choice; the debug flag makes it explainable.
 
 If all three pass, the page's extract (the "What" and "Key facts" sections, max 1400 chars) is injected:
 
@@ -83,7 +85,7 @@ Hook: `hooks/session-capture.js` fires on `SessionEnd`.
 It reads the transcript, extracts the first real user message as the topic, counts how many files the session modified, and checks whether the session already wrote into the memory directory (if so, it skips queueing). The entry is appended to `_capture-queue.jsonl`:
 
 ```json
-{"ts":"2026-06-14T23:15","sessionId":"abc123","cwd":"/home/user/api-server","transcriptPath":"/home/user/.claude/sessions/abc123.jsonl","sizeKB":847,"topic":"the rate limiter is rejecting valid requests from the batch endpoint","filesModified":12}
+{"ts":"2026-06-14T23:15","sessionId":"abc123","cwd":"/home/user/api-server","transcriptPath":"/home/user/.claude/sessions/abc123.jsonl","sizeKB":847,"topic":"why is rate limiting rejecting valid requests from the batch endpoint","filesModified":12}
 ```
 
 Sessions under 40KB (short Q&A, slash-command-only sessions) are skipped.
@@ -119,6 +121,8 @@ The distiller runs as a full agent with file access to the memory directory. It 
 
 ## Install
 
+> The installer registers a **system-wide** daily distill schedule (cron on Unix, a Task Scheduler job named `Memory-Distill-daily` on Windows). Pass `--no-schedule` (sh) or `-NoSchedule` (PowerShell) to skip it, for instance when trying the tool out in a sandbox. Windows PowerShell 5.1 is enough; `pwsh` is not required.
+
 **One command** (requires Node 18+):
 
 ```bash
@@ -126,7 +130,7 @@ The distiller runs as a full agent with file access to the memory directory. It 
 bash install.sh
 
 # Windows (PowerShell)
-pwsh install.ps1
+powershell -File install.ps1
 ```
 
 The installer:
@@ -162,10 +166,10 @@ bash install.sh --memory-dir /my/path  # custom memory location
 bash install.sh --with-codex           # also wire ~/.codex/hooks.json
 bash install.sh --with-skills          # install skill definitions + slash commands
 
-pwsh install.ps1 -DryRun
-pwsh install.ps1 -MemoryDir D:\my-memory
-pwsh install.ps1 -WithCodex
-pwsh install.ps1 -WithSkills
+powershell -File install.ps1 -DryRun
+powershell -File install.ps1 -MemoryDir D:\my-memory
+powershell -File install.ps1 -WithCodex
+powershell -File install.ps1 -WithSkills
 ```
 
 ### What `--with-skills` installs
@@ -195,6 +199,8 @@ pwsh uninstall.ps1         # Windows
 ### Manual install
 
 If you prefer to wire things by hand: see [integrations/claude-code.md](integrations/claude-code.md), [integrations/codex.md](integrations/codex.md), and [integrations/obsidian.md](integrations/obsidian.md).
+
+Domain recipe: [integrations/trading-agent.md](integrations/trading-agent.md) turns the memory into a trade journal with a distill-review loop (counted observations from your own trades, never predictions), using the `DISTILL_PROMPT` override with [scripts/distill-prompt-trading.md](scripts/distill-prompt-trading.md).
 
 ### Verify
 

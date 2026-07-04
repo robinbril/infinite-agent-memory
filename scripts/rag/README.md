@@ -44,7 +44,9 @@ Off (the default), the hook is byte-for-byte the proven BM25 behaviour.
 Requires Python 3.10+ on PATH.
 
 ```bash
-pip install fastembed numpy
+pip install fastembed numpy   # heads-up: fastembed >0.5.1 switched this model to mean pooling;
+                              # rebuild the vector index after upgrading fastembed so query and
+                              # index embeddings stay consistent
 ```
 
 `fastembed` downloads the embedding model on first use (a few hundred MB,

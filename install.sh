@@ -6,6 +6,7 @@
 #   bash install.sh --memory-dir /custom/path
 #   bash install.sh --with-codex
 #   bash install.sh --with-skills
+#   bash install.sh --no-schedule   (skip the system-wide daily distill job)
 #   AGENT_MEMORY_DIR=/custom/path bash install.sh
 
 set -euo pipefail
@@ -15,6 +16,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_MEMORY_DIR="$HOME/agent-memory"
 MEMORY_DIR="${AGENT_MEMORY_DIR:-$DEFAULT_MEMORY_DIR}"
 DRY_RUN=0
+NO_SCHEDULE=0
 WITH_CODEX=0
 WITH_SKILLS=0
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
@@ -24,6 +26,7 @@ CODEX_HOOKS="$HOME/.codex/hooks.json"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)     DRY_RUN=1 ;;
+    --no-schedule) NO_SCHEDULE=1 ;;
     --with-codex)  WITH_CODEX=1 ;;
     --with-skills) WITH_SKILLS=1 ;;
     --memory-dir)  MEMORY_DIR="$2"; shift ;;
@@ -386,12 +389,19 @@ DISTILL_SCRIPT="${REPO_DIR}/scripts/distill.sh"
 CRON_ENV_PREFIX=""
 [[ $IS_CUSTOM_MEMDIR -eq 1 ]] && CRON_ENV_PREFIX="AGENT_MEMORY_DIR=${MEMORY_DIR} "
 CRON_LINE="30 7 * * * ${CRON_ENV_PREFIX}\"${DISTILL_SCRIPT}\""
-if [[ -f "$DISTILL_SCRIPT" ]]; then
+if [[ ${NO_SCHEDULE:-0} -eq 1 ]]; then
+  warn "--no-schedule: skipping the daily distill schedule"
+elif [[ -f "$DISTILL_SCRIPT" ]]; then
   if [[ $DRY_RUN -eq 1 ]]; then
     dry "add cron: ${CRON_LINE}"
   else
+    # no crontab on this platform (e.g. Git Bash on Windows): skip with guidance
+    if ! command -v crontab >/dev/null 2>&1; then
+      warn "crontab not found on this platform; skipping the daily distill schedule."
+      warn "On Windows, run install.ps1 instead (registers a Task Scheduler job),"
+      warn "or schedule scripts/distill.sh manually."
     # check if already scheduled
-    if crontab -l 2>/dev/null | grep -qF "$DISTILL_SCRIPT"; then
+    elif crontab -l 2>/dev/null | grep -qF "$DISTILL_SCRIPT"; then
       ok "distill already in crontab"
     else
       (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -

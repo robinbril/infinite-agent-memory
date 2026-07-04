@@ -276,10 +276,26 @@ function embedQuerySync(text) {
 // that BM25 missed entirely (s=0). A page passes the gate on EITHER the strict
 // BM25 gate (onTopic + score) OR a cosine above DENSE_FLOOR (empirically
 // separated from off-topic, so no lexical anchor needed).
+// AGENT_MEMORY_DEBUG=1 logs gate decisions to stderr (stdout stays reserved
+// for the injection payload). Lets a first-time user see WHY nothing injected.
+const DEBUG = process.env.AGENT_MEMORY_DEBUG === '1';
+function dbg(msg) { if (DEBUG) process.stderr.write('[memory-debug] ' + msg + '\n'); }
+
 function selectPicks(ranked, cosByPath, allDocs) {
   if (!cosByPath) {
     const top = ranked[0];
-    if (!top || top.norm < SCORE_MIN || !top.onTopic) return [];
+    if (DEBUG) {
+      for (const r of ranked.slice(0, 5)) {
+        dbg(`candidate ${r.doc.path}: score=${r.norm.toFixed(3)} (min ${SCORE_MIN}) onTopic=${r.onTopic} slugExact=${r.slugExact}`);
+      }
+      if (!ranked.length) dbg('no BM25 candidates at all for this prompt');
+    }
+    if (!top || top.norm < SCORE_MIN || !top.onTopic) {
+      if (top) dbg(`rejected top ${top.doc.path}: ` + (top.norm < SCORE_MIN
+        ? `score ${top.norm.toFixed(3)} below ${SCORE_MIN}`
+        : 'onTopic gate failed (needs 2 title-word matches, 2 discriminating terms, or the exact slug in the prompt)'));
+      return [];
+    }
     const picks = [top];
     const second = ranked[1];
     if (second && second.norm >= top.norm * SECOND_RATIO &&

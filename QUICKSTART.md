@@ -12,7 +12,7 @@ cd infinite-agent-memory
 bash install.sh --with-skills
 
 # Windows (PowerShell)
-pwsh install.ps1 -WithSkills
+powershell -File install.ps1 -WithSkills
 ```
 
 The installer creates `~/agent-memory/`, merges the three hooks into `~/.claude/settings.json`, copies the skill definitions and slash commands, and registers a daily distill job. No npm install needed.
@@ -55,7 +55,7 @@ Obsidian vault setup:
 
 ```bash
 bash scripts/obsidian-setup.sh       # macOS / Linux
-pwsh scripts/obsidian-setup.ps1      # Windows
+powershell -File scripts/obsidian-setup.ps1      # Windows
 ```
 
 ## Options

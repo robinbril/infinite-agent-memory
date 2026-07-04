@@ -24,7 +24,8 @@ $memDir    = if ($env:AGENT_MEMORY_DIR) { $env:AGENT_MEMORY_DIR } else { Join-Pa
 $queue     = Join-Path $memDir '_capture-queue.jsonl'
 $batchFile = Join-Path $memDir '_distill-batch.md'
 $repoRoot  = Split-Path $PSScriptRoot -Parent
-$promptF   = Join-Path $PSScriptRoot 'distill-prompt.md'
+# DISTILL_PROMPT overrides the prompt file (e.g. scripts/distill-prompt-trading.md)
+$promptF   = if ($env:DISTILL_PROMPT) { $env:DISTILL_PROMPT } else { Join-Path $PSScriptRoot 'distill-prompt.md' }
 $digester  = Join-Path $PSScriptRoot 'transcript-digest.js'
 $logDir    = Join-Path $memDir '_logs'
 $log       = Join-Path $logDir 'distill.log'

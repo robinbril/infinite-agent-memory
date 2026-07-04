@@ -47,9 +47,15 @@ $ErrorActionPreference = "Stop"
 $RepoDir = $PSScriptRoot
 if (-not $RepoDir) { $RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 
+$DefaultMemoryDir = Join-Path $HOME "agent-memory"
 if ($MemoryDir -eq "") {
-    $MemoryDir = if ($env:AGENT_MEMORY_DIR) { $env:AGENT_MEMORY_DIR } else { Join-Path $HOME "agent-memory" }
+    $MemoryDir = if ($env:AGENT_MEMORY_DIR) { $env:AGENT_MEMORY_DIR } else { $DefaultMemoryDir }
 }
+
+# a custom memory dir (via -MemoryDir or $env:AGENT_MEMORY_DIR) needs to be wired
+# into settings.json env and the Task Scheduler action, since hooks read
+# process.env.AGENT_MEMORY_DIR
+$IsCustomMemDir = ($MemoryDir -ne $DefaultMemoryDir)
 
 $ClaudeSettings = Join-Path $HOME ".claude\settings.json"
 $CodexHooks     = Join-Path $HOME ".codex\hooks.json"
@@ -92,7 +98,8 @@ function Invoke-JsonMerge {
         [string]   $SettingsPath,
         [string]   $RepoPath,
         [bool]     $IsCodex,
-        [bool]     $IsDryRun
+        [bool]     $IsDryRun,
+        [string]   $CustomMemDir = ""
     )
 
     if (-not $NodeBin) {
@@ -182,6 +189,7 @@ const path = require('path');
 const settingsPath = process.argv[2];
 const repoDir      = process.argv[3];
 const dryRun       = process.argv[4] === '1';
+const customMemDir = process.argv[5] || '';
 
 const events = [
   { event: 'SessionStart',     cmd: `node "${repoDir}/hooks/session-recall.js"`,   timeout: 3000  },
@@ -202,6 +210,17 @@ if (fs.existsSync(settingsPath)) {
 
 if (!settings.hooks) settings.hooks = {};
 let changed = 0;
+
+if (customMemDir) {
+  if (!settings.env) settings.env = {};
+  if (settings.env.AGENT_MEMORY_DIR !== customMemDir) {
+    settings.env.AGENT_MEMORY_DIR = customMemDir;
+    changed++;
+    console.log('[merge] env.AGENT_MEMORY_DIR: set to ' + customMemDir);
+  } else {
+    console.log('[merge] env.AGENT_MEMORY_DIR: already set, skipping');
+  }
+}
 
 for (const { event, cmd, timeout } of events) {
   const list = settings.hooks[event] || [];
@@ -230,7 +249,7 @@ console.log('[merge] Written: ' + settingsPath);
     $tmp = [System.IO.Path]::GetTempFileName() + ".js"
     [System.IO.File]::WriteAllText($tmp, $script, [System.Text.UTF8Encoding]::new($false))
     try {
-        & $NodeBin $tmp $SettingsPath $RepoPath $DryFlag
+        & $NodeBin $tmp $SettingsPath $RepoPath $DryFlag $CustomMemDir
     } finally {
         Remove-Item $tmp -ErrorAction SilentlyContinue
     }
@@ -302,7 +321,8 @@ Write-Host "==> Claude Code settings.json: $ClaudeSettings"
 # Normalise repo path to forward slashes for the node script
 $RepoDirFwd = $RepoDir -replace '\\', '/'
 
-Invoke-JsonMerge -SettingsPath $ClaudeSettings -RepoPath $RepoDirFwd -IsCodex $false -IsDryRun ([bool]$DryRun)
+$MergeMemDirArg = if ($IsCustomMemDir) { $MemoryDir } else { "" }
+Invoke-JsonMerge -SettingsPath $ClaudeSettings -RepoPath $RepoDirFwd -IsCodex $false -IsDryRun ([bool]$DryRun) -CustomMemDir $MergeMemDirArg
 
 # ── step 4: Codex hooks.json (optional) ──────────────────────────────────────
 if ($WithCodex) {
@@ -372,8 +392,14 @@ if (Test-Path $distillScript) {
         Log-Ok "task '$taskName' already registered"
     } else {
         Invoke-OrDry "register Task Scheduler job '$taskName' (daily 07:30)" {
-            $a = New-ScheduledTaskAction -Execute 'powershell.exe' `
-                 -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$distillScript`""
+            if ($IsCustomMemDir) {
+                # distill.ps1 reads $env:AGENT_MEMORY_DIR; set it inline for the
+                # scheduled task since Task Scheduler does not inherit interactive env vars.
+                $taskArg = "-NoProfile -ExecutionPolicy Bypass -Command `"`$env:AGENT_MEMORY_DIR='$MemoryDir'; & '$distillScript'`""
+            } else {
+                $taskArg = "-NoProfile -ExecutionPolicy Bypass -File `"$distillScript`""
+            }
+            $a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $taskArg
             $t = New-ScheduledTaskTrigger -Daily -At "07:30"
             $s = New-ScheduledTaskSettingsSet -StartWhenAvailable `
                  -ExecutionTimeLimit (New-TimeSpan -Hours 2) `

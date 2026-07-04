@@ -53,3 +53,37 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: node scripts/doctor.js --memory-dir $env:TEMP\agent-memory-ci; exit 0
+
+      - name: Syntax check - Codex adapters
+        run: |
+          node --check integrations/codex-session-recall-adapter.js
+          node --check integrations/codex-prompt-recall-adapter.js
+
+  python-rag:
+    name: "Python RAG layer on ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile check (Unix)
+        if: runner.os != 'Windows'
+        run: python -m py_compile scripts/rag/*.py
+
+      - name: Compile check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Get-ChildItem scripts/rag/*.py | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { exit 1 } }
+
+      - name: PII routing self-test
+        run: python scripts/rag/pii_route.py --selftest

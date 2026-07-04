@@ -12,7 +12,8 @@ set -euo pipefail
 
 # ── defaults ────────────────────────────────────────────────────────────────
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MEMORY_DIR="${AGENT_MEMORY_DIR:-$HOME/agent-memory}"
+DEFAULT_MEMORY_DIR="$HOME/agent-memory"
+MEMORY_DIR="${AGENT_MEMORY_DIR:-$DEFAULT_MEMORY_DIR}"
 DRY_RUN=0
 WITH_CODEX=0
 WITH_SKILLS=0
@@ -31,6 +32,11 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# a custom memory dir (via --memory-dir or AGENT_MEMORY_DIR) needs to be wired
+# into settings.json env and the cron job, since hooks read process.env.AGENT_MEMORY_DIR
+IS_CUSTOM_MEMDIR=0
+[[ "$MEMORY_DIR" != "$DEFAULT_MEMORY_DIR" ]] && IS_CUSTOM_MEMDIR=1
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 log()  { echo "  $*"; }
@@ -113,9 +119,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const settingsPath = process.argv[2];
-const repoDir      = process.argv[3];
-const dryRun       = process.argv[4] === '1';
+const settingsPath   = process.argv[2];
+const repoDir        = process.argv[3];
+const dryRun         = process.argv[4] === '1';
+const customMemDir   = process.argv[5] || '';
 
 // Commands to wire
 const events = [
@@ -150,6 +157,19 @@ if (fs.existsSync(settingsPath)) {
 
 if (!settings.hooks) settings.hooks = {};
 let changed = 0;
+
+// Wire AGENT_MEMORY_DIR into the env block when a custom memory dir is used,
+// so hooks (which read process.env.AGENT_MEMORY_DIR) see it outside a shell too.
+if (customMemDir) {
+  if (!settings.env) settings.env = {};
+  if (settings.env.AGENT_MEMORY_DIR !== customMemDir) {
+    settings.env.AGENT_MEMORY_DIR = customMemDir;
+    changed++;
+    console.log('[merge] env.AGENT_MEMORY_DIR: set to ' + customMemDir);
+  } else {
+    console.log('[merge] env.AGENT_MEMORY_DIR: already set, skipping');
+  }
+}
 
 for (const { event, cmd, timeout } of events) {
   const list = settings.hooks[event] || [];
@@ -188,11 +208,14 @@ console.log('[merge] Written: ' + settingsPath);
 NODEEOF
 )"
 
+MERGE_MEMDIR_ARG=""
+[[ $IS_CUSTOM_MEMDIR -eq 1 ]] && MERGE_MEMDIR_ARG="$MEMORY_DIR"
+
 if [[ -n "$NODE_BIN" ]]; then
   if [[ $DRY_RUN -eq 1 ]]; then
-    echo "$MERGE_SCRIPT" | node - "$CLAUDE_SETTINGS" "$REPO_DIR" "1"
+    echo "$MERGE_SCRIPT" | node - "$CLAUDE_SETTINGS" "$REPO_DIR" "1" "$MERGE_MEMDIR_ARG"
   else
-    echo "$MERGE_SCRIPT" | node - "$CLAUDE_SETTINGS" "$REPO_DIR" "0"
+    echo "$MERGE_SCRIPT" | node - "$CLAUDE_SETTINGS" "$REPO_DIR" "0" "$MERGE_MEMDIR_ARG"
   fi
 else
   warn "Skipping settings.json merge (node not available). Run manually after installing Node."
@@ -359,17 +382,19 @@ fi
 # ── step 5: schedule the distill ─────────────────────────────────────────────
 echo ""
 echo "==> Distill schedule"
-CRON_CMD="30 7 * * * $NODE_BIN \"${REPO_DIR}/scripts/distill.sh\""
 DISTILL_SCRIPT="${REPO_DIR}/scripts/distill.sh"
+CRON_ENV_PREFIX=""
+[[ $IS_CUSTOM_MEMDIR -eq 1 ]] && CRON_ENV_PREFIX="AGENT_MEMORY_DIR=${MEMORY_DIR} "
+CRON_LINE="30 7 * * * ${CRON_ENV_PREFIX}\"${DISTILL_SCRIPT}\""
 if [[ -f "$DISTILL_SCRIPT" ]]; then
   if [[ $DRY_RUN -eq 1 ]]; then
-    dry "add cron: 30 7 * * * ${DISTILL_SCRIPT}"
+    dry "add cron: ${CRON_LINE}"
   else
     # check if already scheduled
     if crontab -l 2>/dev/null | grep -qF "$DISTILL_SCRIPT"; then
       ok "distill already in crontab"
     else
-      (crontab -l 2>/dev/null; echo "30 7 * * * \"${DISTILL_SCRIPT}\"") | crontab -
+      (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
       ok "added cron job: daily at 07:30"
     fi
   fi

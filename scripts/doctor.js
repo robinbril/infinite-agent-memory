@@ -136,6 +136,22 @@ function readSettings() {
   return null;
 }
 
+function memoryDirEnvCheck() {
+  const settings = readSettings();
+  if (!settings || !settings.data) return; // covered by hookWiringCheck warnings
+  const envMemDir = settings.data.env && settings.data.env.AGENT_MEMORY_DIR;
+  if (!envMemDir) {
+    pass('settings.json env.AGENT_MEMORY_DIR', 'not set (using default memory dir)');
+    return;
+  }
+  const normalize = (p) => path.resolve(p).replace(/\\/g, '/').toLowerCase();
+  if (normalize(envMemDir) === normalize(memDir)) {
+    pass('settings.json env.AGENT_MEMORY_DIR', `matches: ${envMemDir}`);
+  } else {
+    warn('settings.json env.AGENT_MEMORY_DIR', `mismatch: settings.json has "${envMemDir}", doctor is using "${memDir}"`);
+  }
+}
+
 function hookWiringCheck() {
   const settings = readSettings();
   if (!settings) {
@@ -298,6 +314,7 @@ function main() {
   }
 
   hookWiringCheck();
+  memoryDirEnvCheck();
   scriptSyntaxChecks();
 
   printReport();

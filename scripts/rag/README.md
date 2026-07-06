@@ -83,9 +83,13 @@ index build, and PII route run without it.
 
    Without this flag the hook ignores the dense layer entirely.
 
-That is the whole activation. The remaining scripts (`pii_route`,
-`ollama_distill`, `autoorder`, `ingest_watch`, `lint`) are independent
-maintenance jobs you schedule as you like.
+That is the whole activation. The remaining scripts (`autoorder`,
+`ingest_watch`, `lint`) are independent maintenance jobs you schedule as you
+like. `pii_route` and `ollama_distill` are different: set
+`AGENT_MEMORY_PII_ROUTE=1` and the core distill (`scripts/distill.sh` /
+`distill.ps1`) invokes them itself, so high-PII sessions never reach the cloud
+agent (see the "PII routing" section below). You can still run `pii_route`
+standalone, but the flag is what wires it into the daily distill.
 
 ## Environment variables
 
@@ -107,6 +111,12 @@ distill consumes) and splits each session by PII load:
   distill via `ollama_distill.py`).
 - **< 2 hits** -> `<memory>/_distill-batch-remote.md`, pseudonymized (names ->
   `[PERSON_n]`, BSN/email/phone redacted) and safe for a cloud model.
+
+The recommended way to run this is inline with the core distill: set
+`AGENT_MEMORY_PII_ROUTE=1` and `distill.sh` / `distill.ps1` call `pii_route.py`
+(then `ollama_distill.py` for the local batch) before the cloud step. Prefer
+that over the standalone cron entry below, so the batch is split on the same run
+that produced it rather than on a separate schedule.
 
 The name **gazetteer is loaded from a local file you provide**, never from
 source:

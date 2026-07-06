@@ -109,6 +109,8 @@ For each unprocessed queue entry:
 
 The distiller runs as a full agent with file access to the memory directory. It can read, write, and edit pages. The `SCHEMA.md` file is its contract: it defines frontmatter fields, section structure, and naming conventions.
 
+> **Privacy note.** By default this step sends the batched session digests to the cloud agent (`claude -p`) as-is: no PII filtering runs on the core path. The distill prompt tells the agent never to store secrets in memory, but the digest itself still leaves the machine. If your sessions carry personal data (names, BSN, email, phone), set `AGENT_MEMORY_PII_ROUTE=1` to route through [scripts/rag/pii_route.py](scripts/rag/pii_route.py) first: high-PII sessions distill locally via Ollama and never leave the machine, low-PII sessions get a pseudonymized copy before the cloud call. See [scripts/rag/README.md](scripts/rag/README.md#pii-routing-and-the-gazetteer).
+
 ### How it feels in practice
 
 **Session 1** (Monday): you debug a rate-limiting issue. The session ends, gets captured.

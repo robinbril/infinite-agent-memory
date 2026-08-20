@@ -51,8 +51,13 @@ The hook receives the user's prompt on stdin as JSON:
 It tokenizes the prompt, scores every page in the memory using field-weighted BM25 (title words count 5x, headers 3x, key facts 2x, body 1x), and runs three gates:
 
 1. **Score gate**: normalized BM25 score must be >= 0.30
-2. **On-topic gate**: at least two title words match ("rate" + "limiting"), OR two discriminating terms (words rare in the corpus), OR the exact slug appears in the prompt
+2. **On-topic gate**: at least two title words match ("rate" + "limiting"), OR two discriminating terms (words rare in the corpus), OR the exact slug appears in the prompt. A word and its suffix-stripped variant count as ONE match, so a single shared word cannot clear the gate by itself.
 3. **Dedup gate**: this page was not already injected in the last 30 prompts of this session
+4. **Daily cap**: the same page injects at most 4 times per day ACROSS sessions (`AGENT_MEMORY_DAILY_CAP`, 0 disables). Session dedup cannot catch a scheduled job that starts a fresh session every run; in production one page hit 1110 injections in 14 days, zero used, before this cap existed.
+
+Headless callers that run a fixed prompt (cron check-ins, batch jobs) can disable recall entirely with `AGENT_MEMORY_RECALL=0`.
+
+To tune recall on evidence instead of vibes, `scripts/recall-audit.js --days 30` reports used-vs-injected per page from your transcripts. The "used" number is a lower bound (silent use is invisible), but pages with many injections and zero use are noise: sharpen their description or raise the gates.
 
 Nothing injected and you expected something? Run the hook with `AGENT_MEMORY_DEBUG=1` to see every candidate, its score and which gate rejected it on stderr. Silence is a deliberate design choice; the debug flag makes it explainable.
 
@@ -108,6 +113,8 @@ For each unprocessed queue entry:
 3. **Mark done**: the queue entry gets `done: true` so it is not re-processed.
 
 The distiller runs as a full agent with file access to the memory directory. It can read, write, and edit pages. The `SCHEMA.md` file is its contract: it defines frontmatter fields, section structure, and naming conventions.
+
+> **Privacy note.** By default this step sends the batched session digests to the cloud agent (`claude -p`) as-is: no PII filtering runs on the core path. The distill prompt tells the agent never to store secrets in memory, but the digest itself still leaves the machine. If your sessions carry personal data (names, BSN, email, phone), set `AGENT_MEMORY_PII_ROUTE=1` to route through [scripts/rag/pii_route.py](scripts/rag/pii_route.py) first: high-PII sessions distill locally via Ollama and never leave the machine, low-PII sessions get a pseudonymized copy before the cloud call. See [scripts/rag/README.md](scripts/rag/README.md#pii-routing-and-the-gazetteer).
 
 ### How it feels in practice
 

@@ -207,3 +207,72 @@ describe('prompt-recall per-session dedup', () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+
+describe('prompt-recall kill switch + daily cap', () => {
+
+  const ontopicPrompt = 'Explain BM25 retrieval term frequency and inverse document frequency ranking';
+
+  function recallEnv(payload, memDir, extraEnv) {
+    return run('node', [SCRIPT], {
+      stdin: JSON.stringify(payload),
+      env: Object.assign({ AGENT_MEMORY_DIR: memDir }, extraEnv),
+    });
+  }
+
+  it('AGENT_MEMORY_RECALL=0 disables injection entirely', () => {
+    const { stdout, code } = recallEnv({
+      prompt: ontopicPrompt,
+      session_id: 'kill-' + Date.now(),
+    }, sharedRoot, { AGENT_MEMORY_RECALL: '0' });
+    assert.equal(code, 0);
+    assert.equal(stdout, '', 'kill switch suppresses injection');
+  });
+
+  it('daily cap stops repeat injections across fresh sessions', () => {
+    // Fresh memory dir so the daily counter starts clean; cap at 2.
+    const capRoot = fresh({
+      files: {
+        'concepts/bm25-retrieval.md': [
+          '---', 'name: bm25-retrieval', 'type: concept', 'sources: []',
+          'links: []', 'updated: 2026-01-01', '---',
+          '## What',
+          'BM25 is a ranking function used by search engines to estimate relevance.',
+          '## Key facts',
+          '- Uses term frequency and inverse document frequency (source: test)',
+        ].join('\n'),
+      },
+    });
+    const env = { AGENT_MEMORY_DAILY_CAP: '2' };
+    // Every call uses a FRESH session, mimicking a cron: session dedup never fires.
+    const r1 = recallEnv({ prompt: ontopicPrompt, session_id: 'cap1-' + Date.now() }, capRoot, env);
+    const r2 = recallEnv({ prompt: ontopicPrompt, session_id: 'cap2-' + Date.now() }, capRoot, env);
+    const r3 = recallEnv({ prompt: ontopicPrompt, session_id: 'cap3-' + Date.now() }, capRoot, env);
+    assert.ok(r1.stdout.includes('memory-recall'), 'first fresh session injects');
+    assert.ok(r2.stdout.includes('memory-recall'), 'second fresh session injects');
+    assert.equal(r3.stdout, '', 'third fresh session capped');
+  });
+
+  it('AGENT_MEMORY_DAILY_CAP=0 disables the cap', () => {
+    const capRoot = fresh({
+      files: {
+        'concepts/bm25-retrieval.md': [
+          '---', 'name: bm25-retrieval', 'type: concept', 'sources: []',
+          'links: []', 'updated: 2026-01-01', '---',
+          '## What',
+          'BM25 is a ranking function used by search engines to estimate relevance.',
+          '## Key facts',
+          '- Uses term frequency and inverse document frequency (source: test)',
+        ].join('\n'),
+      },
+    });
+    const env = { AGENT_MEMORY_DAILY_CAP: '0' };
+    let last;
+    for (let i = 0; i < 6; i++) {
+      last = recallEnv({ prompt: ontopicPrompt, session_id: `nocap${i}-` + Date.now() }, capRoot, env);
+    }
+    assert.ok(last.stdout.includes('memory-recall'), 'sixth fresh session still injects with cap off');
+  });
+
+});

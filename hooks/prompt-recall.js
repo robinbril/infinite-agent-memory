@@ -18,6 +18,15 @@
  * via reciprocal-rank fusion. Any hiccup falls back to the proven BM25 path,
  * so recall never breaks. See scripts/rag/ for the dense layer setup.
  *
+ * Kill switch: AGENT_MEMORY_RECALL=0 disables injection entirely. Set it on
+ * headless callers (cron check-ins, batch jobs) that run a fixed prompt and
+ * have no use for recall context.
+ *
+ * Daily cap: the same page injects at most AGENT_MEMORY_DAILY_CAP times per
+ * day ACROSS sessions (default 4, 0 disables). Per-session dedup cannot catch
+ * a cron that starts a fresh session every run; measured in production, one
+ * page hit 1110 injections in 14 days with zero use before this cap existed.
+ *
  * Hard rule: always exit 0. exit 2 would block the prompt. No output is valid.
  */
 'use strict';
@@ -90,6 +99,26 @@ function tokenize(text) {
   return out;
 }
 
+// Like tokenize, but groups each source word with its suffix-stripped variant so
+// the on-topic gate counts one word once. tokenize() (flat, with variants) stays
+// the indexing/BM25 tokenizer; this grouping is only for query-side topicality.
+// Without it a word and its variant both hit the same doc and a single shared
+// word could clear the two-discriminating-terms gate on its own.
+function tokenGroups(text) {
+  const groups = [];
+  const raw = stripDiacritics(String(text).toLowerCase()).split(/[^a-z0-9]+/);
+  for (const t of raw) {
+    if (t.length < 2 || STOP.has(t)) continue;
+    const g = [t];
+    if (t.length > 5) {
+      const v = t.replace(/('s|en|s)$/, '');
+      if (v.length > 2 && v !== t) g.push(v);
+    }
+    groups.push(g);
+  }
+  return groups;
+}
+
 // --- index building ---
 
 function parsePage(abs, rel) {
@@ -103,6 +132,10 @@ function parsePage(abs, rel) {
   const slug = slugMatch ? slugMatch[1].trim() : path.basename(rel, '.md');
   const linkMatch = fm.match(/^links:\s*\[(.*)\]/m);
   const links = linkMatch ? linkMatch[1] : '';
+  // a frontmatter description is exactly the sentence that says what the page
+  // is about, so it weighs like a heading. Absent on most pages: harmless.
+  const descMatch = fm.match(/^description:\s*(.+)$/m);
+  const description = descMatch ? descMatch[1].trim().replace(/^["']|["']$/g, '') : '';
 
   // field-weighted token frequency
   const tf = Object.create(null);
@@ -110,6 +143,7 @@ function parsePage(abs, rel) {
 
   const titleTokens = tokenize(slug);
   add(slug, FIELD.title);
+  add(description, FIELD.head);
 
   let inKeyfacts = false;
   let len = 0;
@@ -141,12 +175,15 @@ function parsePage(abs, rel) {
     len: Math.max(len, 1),
     titleTokens,
     tf: tfCapped,
-    extract: buildExtract(body)
+    extract: buildExtract(body, description)
   };
 }
 
-// What + Key facts sections; fallback to first chars of body.
-function buildExtract(body) {
+// What + Key facts sections; fallback to first chars of body. Pages without
+// those sections (e.g. flat note files) fall back to the body with the
+// frontmatter description as a lead line, so the extract still says what the
+// page is about.
+function buildExtract(body, description) {
   const lines = body.split('\n');
   const picked = [];
   let capture = false;
@@ -160,7 +197,7 @@ function buildExtract(body) {
     if (capture) picked.push(line);
   }
   let out = picked.join('\n').trim();
-  if (out.length < 40) out = body.trim();
+  if (out.length < 40) out = ((description ? description + '\n\n' : '') + body).trim();
   return out.slice(0, EXTRACT_CAP);
 }
 
@@ -307,22 +344,32 @@ function selectPicks(ranked, cosByPath, allDocs) {
   }
 
   const inRanked = new Set(ranked.map(r => r.doc.path));
+  const has = p => Object.prototype.hasOwnProperty.call(cosByPath, p);
   const pool = ranked.map(r => ({
-    doc: r.doc, norm: r.norm, onTopic: r.onTopic, cos: cosByPath[r.doc.path] || 0,
+    doc: r.doc, norm: r.norm, onTopic: r.onTopic,
+    cos: cosByPath[r.doc.path] || 0, hasVec: has(r.doc.path),
   }));
   for (const d of allDocs) {
     if (inRanked.has(d.path)) continue;
     const c = cosByPath[d.path] || 0;
-    if (c >= DENSE_FLOOR) pool.push({ doc: d, norm: 0, onTopic: false, cos: c });
+    if (c >= DENSE_FLOOR) pool.push({ doc: d, norm: 0, onTopic: false, cos: c, hasVec: true });
   }
   if (!pool.length) return [];
 
   const byBm = [...pool].sort((a, b) => b.norm - a.norm);
-  const byDe = [...pool].sort((a, b) => b.cos - a.cos);
   const rankBm = new Map(byBm.map((e, i) => [e.doc.path, i]));
+  // The dense ranking only counts docs that actually HAVE a vector. A doc
+  // without one (not yet embedded, or a source the vec builder does not cover)
+  // would otherwise land at the bottom of the dense list and get punished for
+  // MISSING DATA instead of irrelevance: a rank-1 BM25 hit lost to an off-topic
+  // page that happened to have a vector. No vector: the dense layer abstains
+  // and the BM25 rank counts for both terms.
+  const byDe = pool.filter(e => e.hasVec).sort((a, b) => b.cos - a.cos);
   const rankDe = new Map(byDe.map((e, i) => [e.doc.path, i]));
   for (const e of pool) {
-    e.rrf = 1 / (RRF_K + rankBm.get(e.doc.path)) + 1 / (RRF_K + rankDe.get(e.doc.path));
+    const rb = rankBm.get(e.doc.path);
+    const rd = rankDe.has(e.doc.path) ? rankDe.get(e.doc.path) : rb;
+    e.rrf = 1 / (RRF_K + rb) + 1 / (RRF_K + rd);
   }
   pool.sort((a, b) => b.rrf - a.rrf);
 
@@ -338,9 +385,12 @@ function selectPicks(ranked, cosByPath, allDocs) {
 
 // --- scoring ---
 
-function score(qTokens, index) {
+function score(qGroups, index) {
   const N = index.nDocs;
   if (!N) return [];
+  // flat token list for BM25 and the phrase bonus; groups for the on-topic gate
+  const qTokens = [];
+  for (const g of qGroups) for (const t of g) qTokens.push(t);
   const qUnique = [...new Set(qTokens)];
 
   // idf per query term. Terms ABSENT from the memory (df=0) get a high, capped
@@ -365,17 +415,12 @@ function score(qTokens, index) {
   const results = [];
   for (const doc of index.docs) {
     let s = 0;
-    let discCount = 0, titleOverlap = 0;
     const tt = new Set(doc.titleTokens);
-    let slugExact = false;
     for (const t of qUnique) {
       const f = doc.tf[t];
       if (!f || !idf[t]) continue;
       const denom = f + BM25_K1 * (1 - BM25_B + BM25_B * (doc.len / index.avgLen));
       s += idf[t] * (f * (BM25_K1 + 1)) / denom;
-      if ((index.df[t] || N) <= discMax) discCount += 1;
-      if (tt.has(t)) titleOverlap += 1;
-      if (t === doc.slug) slugExact = true;
     }
     if (s === 0) continue;
 
@@ -385,7 +430,23 @@ function score(qTokens, index) {
     }
 
     // on-topic = matches the SPECIFIC subject, not just one shared broad word:
-    // two title words, two discriminating terms, or the exact slug (a named entity).
+    // two title words, two discriminating terms, or the exact slug (a named
+    // entity). Counted per source-word GROUP so a word and its suffix variant
+    // count once, not twice; the double count let an off-topic page clear the
+    // gate on a single shared word.
+    let discCount = 0, titleOverlap = 0, slugExact = false;
+    for (const g of qGroups) {
+      let gDisc = false, gTitle = false;
+      for (const t of g) {
+        if (!doc.tf[t]) continue;
+        if ((index.df[t] || N) <= discMax) gDisc = true;
+        if (tt.has(t)) gTitle = true;
+        if (t === doc.slug) slugExact = true;
+      }
+      if (gDisc) discCount += 1;
+      if (gTitle) titleOverlap += 1;
+    }
+
     const onTopic = titleOverlap >= 2 || discCount >= 2 || slugExact;
     results.push({ doc, norm: s / idfSum, onTopic, slugExact });
   }
@@ -418,6 +479,9 @@ function pruneState() {
 // --- main ---
 
 function main() {
+  // Kill switch for headless callers (cron check-ins, batch jobs): they run a
+  // fixed prompt and have no use for recall context.
+  if (process.env.AGENT_MEMORY_RECALL === '0') return;
   if (!fs.existsSync(memDir)) return;
 
   let input;
@@ -431,17 +495,19 @@ function main() {
   if (prompt.trim().length < MIN_PROMPT_CHARS) return;
   if (prompt.trim().startsWith('/')) return;
 
-  const promptTokens = tokenize(prompt);
-  if (promptTokens.length < MIN_TOKENS) return;
+  const promptGroups = tokenGroups(prompt);
+  let flatLen = 0;
+  for (const g of promptGroups) flatLen += g.length;
+  if (flatLen < MIN_TOKENS) return;
   // cwd basename tokens add a weak location signal (a session inside a project
   // dir boosts that project's page) without the prompt needing to name it.
-  const qTokens = promptTokens.concat(tokenize(path.basename(cwd)));
+  const qGroups = promptGroups.concat(tokenGroups(path.basename(cwd)));
 
   const index = loadIndex();
   if (!index || !index.nDocs) return;
   if (Date.now() > DEADLINE) return;
 
-  const ranked = score(qTokens, index);
+  const ranked = score(qGroups, index);
 
   // dense fusion (optional): embed the query via the local service and cosine it
   // against every page vector. If the service fails or _vec.json is missing,
@@ -473,7 +539,27 @@ function main() {
   const state = readState(sessionId) || { promptCount: 0, injected: {} };
   state.promptCount += 1;
 
+  // Cross-session daily cap: every cron run is a FRESH session, so the dedup
+  // above never catches a scheduled job hitting the same page all day
+  // (measured: one page injected 1110 times in 14 days, zero used). The same
+  // page injects at most DAILY_CAP times per day across all sessions; real
+  // interactive work rarely hits that ceiling, a 15-minute cron always does.
+  // The page stays in the index for genuine questions. 0 disables the cap.
+  const DAILY_CAP = process.env.AGENT_MEMORY_DAILY_CAP !== undefined
+    ? Number(process.env.AGENT_MEMORY_DAILY_CAP) : 4;
+  const today = new Date().toISOString().slice(0, 10);
+  let daily = { date: today, counts: {} };
+  const dailyPath = path.join(stateDir, '_daily.json');
+  try {
+    const d = JSON.parse(fs.readFileSync(dailyPath, 'utf8'));
+    if (d && d.date === today) daily = d;
+  } catch (_) {}
+
   const toInject = picks.filter(p => {
+    if (DAILY_CAP > 0 && (daily.counts[p.doc.slug] || 0) >= DAILY_CAP) {
+      dbg(`daily cap: ${p.doc.slug} already injected ${daily.counts[p.doc.slug]}x today`);
+      return false;
+    }
     const at = state.injected[p.doc.slug];
     return at === undefined || (state.promptCount - at) >= REINJECT_AFTER;
   });
@@ -496,9 +582,11 @@ function main() {
     blocks.push(header + ex + footer);
     used += header.length + ex.length + footer.length;
     state.injected[p.doc.slug] = state.promptCount;
+    daily.counts[p.doc.slug] = (daily.counts[p.doc.slug] || 0) + 1;
   }
 
   writeState(sessionId, state);
+  writeAtomic(dailyPath, JSON.stringify(daily));
   if (blocks.length) process.stdout.write(blocks.join('\n'));
 }
 

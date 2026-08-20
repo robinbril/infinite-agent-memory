@@ -9,6 +9,10 @@
 # Configuration via environment:
 #   AGENT_MEMORY_DIR   memory location (default ~/agent-memory)
 #   DISTILL_AGENT_CMD  headless agent command (default: claude -p with safe flags)
+#   AGENT_MEMORY_PII_ROUTE  1/true: run scripts/rag/pii_route.py first so only a
+#                    pseudonymized batch reaches the cloud agent; high-PII sessions
+#                    distill locally via ollama_distill.py. Off (default): the raw
+#                    batch goes to the cloud agent unchanged.
 #
 # Schedule with cron, e.g.:  30 7 * * *  /path/to/repo/scripts/distill.sh
 set -u
@@ -70,6 +74,30 @@ EOF
 rc=$?
 if [ "$rc" = "3" ]; then log "no usable digests, stop"; exit 0; fi
 [ "$rc" = "0" ] || { log "digest preparation failed ($rc)"; exit 1; }
+
+# optional PII route: keep the raw batch off the cloud. When enabled, split the
+# batch (pii_route.py), distill high-PII sessions locally (ollama_distill.py), and
+# point the cloud agent at the pseudonymized remote batch instead of the raw one.
+case "${AGENT_MEMORY_PII_ROUTE:-}" in
+  1|true|TRUE|yes|on)
+    PYBIN="$(command -v python3 || command -v python || true)"
+    if [ -z "$PYBIN" ]; then
+      log "PII route requested but no python found, entries stay pending"; exit 1
+    fi
+    if ! "$PYBIN" "$SCRIPT_DIR/rag/pii_route.py" "$BATCH_FILE" >> "$LOG" 2>&1; then
+      log "pii_route failed, entries stay pending"; exit 1
+    fi
+    REMOTE_BATCH="$MEM_DIR/_distill-batch-remote.md"
+    LOCAL_BATCH="$MEM_DIR/_distill-batch-local.md"
+    # high-PII sessions never leave the machine: distill them via a local model
+    if [ -s "$LOCAL_BATCH" ]; then
+      "$PYBIN" "$SCRIPT_DIR/rag/ollama_distill.py" "$LOCAL_BATCH" "$MEM_DIR" >> "$LOG" 2>&1 \
+        || log "local ollama distill failed (non-fatal), local sessions not folded"
+    fi
+    # the prompt reads _distill-batch.md; swap in the pseudonymized remote batch
+    cp -f "$REMOTE_BATCH" "$BATCH_FILE"
+    ;;
+esac
 
 # run the headless distill from inside the memory dir
 PROMPT="$(sed "s|{{MEMORY_DIR}}|$MEM_DIR|g" "$PROMPT_F")"

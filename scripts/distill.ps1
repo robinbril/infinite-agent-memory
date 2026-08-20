@@ -10,6 +10,10 @@
 # Configuration via environment:
 #   AGENT_MEMORY_DIR   memory location (default ~/agent-memory)
 #   DISTILL_AGENT_CMD  headless agent command (default: claude -p with safe flags)
+#   AGENT_MEMORY_PII_ROUTE  1/true: run scripts/rag/pii_route.py first so only a
+#                    pseudonymized batch reaches the cloud agent; high-PII sessions
+#                    distill locally via ollama_distill.py. Off (default): the raw
+#                    batch goes to the cloud agent unchanged.
 #
 # Schedule with Task Scheduler, e.g. daily:
 #   $a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "<repo>\scripts\distill.ps1"'
@@ -73,6 +77,26 @@ foreach ($e in $pending) {
 
 if ($processed.Count -eq 0) { Log 'no usable digests, stop'; exit 0 }
 [System.IO.File]::WriteAllText($batchFile, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+
+# optional PII route: keep the raw batch off the cloud. When enabled, split the
+# batch (pii_route.py), distill high-PII sessions locally (ollama_distill.py), and
+# point the cloud agent at the pseudonymized remote batch instead of the raw one.
+if ($env:AGENT_MEMORY_PII_ROUTE -match '^(1|true|yes|on)$') {
+  $py = (Get-Command python -ErrorAction SilentlyContinue).Source
+  if (-not $py) { $py = (Get-Command python3 -ErrorAction SilentlyContinue).Source }
+  if (-not $py) { Log 'PII route requested but no python found, entries stay pending'; exit 1 }
+  & $py (Join-Path $PSScriptRoot 'rag\pii_route.py') $batchFile *>> $log
+  if ($LASTEXITCODE -ne 0) { Log 'pii_route failed, entries stay pending'; exit 1 }
+  $remoteBatch = Join-Path $memDir '_distill-batch-remote.md'
+  $localBatch  = Join-Path $memDir '_distill-batch-local.md'
+  # high-PII sessions never leave the machine: distill them via a local model
+  if ((Test-Path $localBatch) -and (Get-Item $localBatch).Length -gt 0) {
+    & $py (Join-Path $PSScriptRoot 'rag\ollama_distill.py') $localBatch $memDir *>> $log
+    if ($LASTEXITCODE -ne 0) { Log 'local ollama distill failed (non-fatal), local sessions not folded' }
+  }
+  # the prompt reads _distill-batch.md; swap in the pseudonymized remote batch
+  Copy-Item -Force $remoteBatch $batchFile
+}
 
 # run the headless distill from inside the memory dir
 $prompt = (Get-Content $promptF -Raw) -replace '\{\{MEMORY_DIR\}\}', $memDir

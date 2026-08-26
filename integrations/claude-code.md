@@ -68,7 +68,17 @@ echo '{"prompt":"<a question about something in your memory>","session_id":"t1",
 
 A relevant page should print inside `<memory-recall>` tags. A generic prompt ("ok go ahead") should print nothing: silence is the designed default.
 
-## 5. Optional: dense recall upgrade
+## 5. Memory for subagents
+
+`prompt-recall.js` feeds the main session. A subagent or delegate spawned on another model/seat starts with zero memory. `scripts/memory-slice.js` closes that gap: it scores a prompt file with the same BM25 over `_recall-index.json` and emits the top matching page extracts, so the orchestrator can prepend them to the worker's prompt.
+
+```
+node scripts/memory-slice.js <promptfile> [out.md]
+```
+
+No `out.md`: the slice goes to stdout. With `out.md`: the slice is written there and its path is echoed. Tune with `MEMORY_SLICE_TOP` (default 4), `MEMORY_SLICE_MIN` (default 3.0), `MEMORY_SLICE_MAXCHARS` (default 9000). It reads the same `$AGENT_MEMORY_DIR/_recall-index.json` the hook maintains, so no extra build step. It always exits 0: a missing index or unreadable file writes nothing and never breaks the delegation.
+
+## 6. Optional: dense recall upgrade
 
 The BM25 core needs nothing beyond Node. If you want semantic recall on top (paraphrased prompts that share no keywords with a page), the `scripts/rag/` Python module adds a local embedding layer that fuses with BM25 via reciprocal-rank fusion.
 

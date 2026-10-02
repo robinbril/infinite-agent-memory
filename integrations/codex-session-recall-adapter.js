@@ -6,7 +6,7 @@ const raw = process.stdin.read() || '';
 const repoDir = path.join(__dirname, '..');
 let ctx = '';
 try {
-  ctx = execSync(`node "${path.join(repoDir, 'hooks', 'session-recall.js')}"`, {
+  ctx = execSync(`"${process.execPath}" "${path.join(repoDir, 'hooks', 'session-recall.js')}"`, {
     input: raw, encoding: 'utf8', timeout: 4000
   });
 } catch (_) {}

@@ -45,7 +45,7 @@ process.stdin.on('end', () => {
   const repoDir = path.join(__dirname, '..');
   let ctx = '';
   try {
-    ctx = execSync(`node "${path.join(repoDir, 'hooks', 'prompt-recall.js')}"`, {
+    ctx = execSync(`"${process.execPath}" "${path.join(repoDir, 'hooks', 'prompt-recall.js')}"`, {
       input: synth, encoding: 'utf8', timeout: 3000
     });
   } catch (_) {}

@@ -6,6 +6,7 @@
 #   bash install.sh --memory-dir /custom/path
 #   bash install.sh --with-codex
 #   bash install.sh --with-skills
+#   bash install.sh --with-e2e      (e2e UI-test skill + MCP for Claude Code, Codex, Cursor)
 #   bash install.sh --no-schedule   (skip the system-wide daily distill job)
 #   AGENT_MEMORY_DIR=/custom/path bash install.sh
 
@@ -19,6 +20,7 @@ DRY_RUN=0
 NO_SCHEDULE=0
 WITH_CODEX=0
 WITH_SKILLS=0
+WITH_E2E=0
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 CODEX_HOOKS="$HOME/.codex/hooks.json"
 
@@ -29,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --no-schedule) NO_SCHEDULE=1 ;;
     --with-codex)  WITH_CODEX=1 ;;
     --with-skills) WITH_SKILLS=1 ;;
+    --with-e2e)    WITH_E2E=1 ;;
     --memory-dir)  MEMORY_DIR="$2"; shift ;;
     --memory-dir=*) MEMORY_DIR="${1#*=}" ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -382,6 +385,19 @@ else
   log "pass --with-skills to install skill definitions and slash commands"
 fi
 
+# ── step 4.6: e2e UI tests (optional) ────────────────────────────────────────
+if [[ $WITH_E2E -eq 1 ]]; then
+  echo ""
+  echo "==> e2e (agentic UI tests) for Claude Code, Codex and Cursor"
+  if [[ -n "$NODE_BIN" ]]; then
+    E2E_ARGS=(install)
+    [[ $DRY_RUN -eq 1 ]] && E2E_ARGS+=(--dry-run)
+    node "${REPO_DIR}/scripts/e2e-setup.js" "${E2E_ARGS[@]}" || warn "e2e setup failed; re-run: node scripts/e2e-setup.js install"
+  else
+    warn "Skipping e2e setup (node not available)."
+  fi
+fi
+
 # ── step 5: schedule the distill ─────────────────────────────────────────────
 echo ""
 echo "==> Distill schedule"
@@ -426,6 +442,7 @@ echo "  settings   : $CLAUDE_SETTINGS"
 [[ $WITH_CODEX -eq 1 ]] && echo "  Codex hooks: $CODEX_HOOKS"
 [[ $WITH_SKILLS -eq 1 ]] && echo "  Skills     : ~/.claude/skills/memory, ~/.claude/skills/graph"
 [[ $WITH_SKILLS -eq 1 ]] && echo "  Commands   : ~/.claude/commands/"
+[[ $WITH_E2E -eq 1 ]] && echo "  e2e        : ~/.agents/skills/e2e, MCP server e2e (sign in: npx e2e login openai)"
 if [[ -n "$NODE_BIN" ]]; then
   echo "  Node       : $NODE_BIN $NODE_VER [ok]"
 else

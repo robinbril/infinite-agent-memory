@@ -10,16 +10,21 @@
 .PARAMETER WithCodex
   Also remove Codex hooks from ~/.codex/hooks.json.
 
+.PARAMETER WithE2E
+  Also remove the e2e skills, MCP server entries and rules (scripts/e2e-setup.js).
+
 .EXAMPLE
   pwsh uninstall.ps1
   pwsh uninstall.ps1 --DryRun
   pwsh uninstall.ps1 --WithCodex
+  pwsh uninstall.ps1 --WithE2E
 #>
 
 [CmdletBinding()]
 param(
     [switch] $DryRun,
-    [switch] $WithCodex
+    [switch] $WithCodex,
+    [switch] $WithE2E
 )
 
 Set-StrictMode -Version Latest
@@ -145,6 +150,19 @@ if ($WithCodex) {
     Write-Host ""
     Write-Host "==> Codex hooks.json: $CodexHooks"
     Invoke-Remove -FilePath $CodexHooks -IsDryRun ([bool]$DryRun)
+}
+
+# ── e2e (optional) ────────────────────────────────────────────────────────────
+if ($WithE2E) {
+    Write-Host ""
+    Write-Host "==> e2e skills, MCP server and rules"
+    if ($NodeBin) {
+        $e2eArgs = @((Join-Path $RepoDir "scripts\e2e-setup.js"), "uninstall")
+        if ($DryRun) { $e2eArgs += "--dry-run" }
+        & $NodeBin @e2eArgs
+    } else {
+        Log-Warn "node not found - cannot remove e2e wiring automatically."
+    }
 }
 
 # ── Task Scheduler ────────────────────────────────────────────────────────────

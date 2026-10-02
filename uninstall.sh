@@ -6,12 +6,14 @@
 #   bash uninstall.sh
 #   bash uninstall.sh --dry-run
 #   bash uninstall.sh --with-codex
+#   bash uninstall.sh --with-e2e
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY_RUN=0
 WITH_CODEX=0
+WITH_E2E=0
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 CODEX_HOOKS="$HOME/.codex/hooks.json"
 
@@ -19,6 +21,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)    DRY_RUN=1 ;;
     --with-codex) WITH_CODEX=1 ;;
+    --with-e2e)   WITH_E2E=1 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
   shift
@@ -130,6 +133,19 @@ if [[ $WITH_CODEX -eq 1 ]]; then
     echo "$REMOVE_SCRIPT" | node - "$CODEX_HOOKS" "$REPO_DIR" "$DRY_RUN" "1"
   else
     warn "node not found - cannot patch Codex hooks.json automatically."
+  fi
+fi
+
+# ── e2e (optional) ────────────────────────────────────────────────────────────
+if [[ $WITH_E2E -eq 1 ]]; then
+  echo ""
+  echo "==> e2e skills, MCP server and rules"
+  if [[ -n "$NODE_BIN" ]]; then
+    E2E_ARGS=(uninstall)
+    [[ $DRY_RUN -eq 1 ]] && E2E_ARGS+=(--dry-run)
+    node "${REPO_DIR}/scripts/e2e-setup.js" "${E2E_ARGS[@]}"
+  else
+    warn "node not found - cannot remove e2e wiring automatically."
   fi
 fi
 

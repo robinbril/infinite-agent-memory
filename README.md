@@ -172,11 +172,13 @@ bash install.sh --dry-run              # preview, no writes
 bash install.sh --memory-dir /my/path  # custom memory location
 bash install.sh --with-codex           # also wire ~/.codex/hooks.json
 bash install.sh --with-skills          # install skill definitions + slash commands
+bash install.sh --with-e2e             # e2e UI-test skill + MCP for Claude Code, Codex, Cursor
 
 powershell -File install.ps1 -DryRun
 powershell -File install.ps1 -MemoryDir D:\my-memory
 powershell -File install.ps1 -WithCodex
 powershell -File install.ps1 -WithSkills
+powershell -File install.ps1 -WithE2E
 ```
 
 ### What `--with-skills` installs
@@ -206,6 +208,8 @@ pwsh uninstall.ps1         # Windows
 ### Manual install
 
 If you prefer to wire things by hand: see [integrations/claude-code.md](integrations/claude-code.md), [integrations/codex.md](integrations/codex.md), and [integrations/obsidian.md](integrations/obsidian.md).
+
+Agentic UI tests: [integrations/e2e.md](integrations/e2e.md) covers `--with-e2e`, which gives Claude Code, Codex and Cursor the [e2e](https://github.com/tester-army/e2e) skill and MCP server, running on a ChatGPT subscription.
 
 Domain recipe: [integrations/trading-agent.md](integrations/trading-agent.md) turns the memory into a trade journal with a distill-review loop (counted observations from your own trades, never predictions), using the `DISTILL_PROMPT` override with [scripts/distill-prompt-trading.md](scripts/distill-prompt-trading.md).
 

@@ -79,6 +79,13 @@ Also wire Codex:
 bash install.sh --with-codex --with-skills
 ```
 
+Also give Claude Code, Codex and Cursor agentic UI tests ([details](integrations/e2e.md)):
+
+```bash
+bash install.sh --with-e2e
+npx e2e login openai
+```
+
 ## Further reading
 
 See [README.md](README.md) for the full design, recall algorithm, maintenance scripts, and architecture.

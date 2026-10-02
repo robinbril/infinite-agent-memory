@@ -176,7 +176,7 @@ if (customMemDir) {
 
 for (const { event, cmd, timeout } of events) {
   const list = settings.hooks[event] || [];
-  // Check if this exact command is already wired anywhere in this event's hook list
+  // Check if this exact command is already wired anywhere in the hook list of this event
   const alreadyWired = list.some(entry => {
     const hooks = entry.hooks || [];
     return hooks.some(h => h.command === cmd);

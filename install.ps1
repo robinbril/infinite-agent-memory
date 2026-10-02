@@ -11,6 +11,8 @@
   - Merges the three Claude Code hooks into ~/.claude/settings.json
     (idempotent JSON merge - existing keys are preserved).
   - Optionally wires Codex hooks into ~/.codex/hooks.json (--WithCodex).
+  - Optionally installs the e2e UI-test skill and MCP server for Claude Code,
+    Codex and Cursor (-WithE2E).
   - Registers a Task Scheduler job for the daily distill.
   - Supports --DryRun to preview changes without writing anything.
 
@@ -24,12 +26,16 @@
 .PARAMETER WithCodex
   Also wire the Codex hooks.json integration.
 
+.PARAMETER WithE2E
+  Also install the e2e skill, MCP server and rules (scripts/e2e-setup.js).
+
 .EXAMPLE
   pwsh install.ps1
   pwsh install.ps1 --DryRun
   pwsh install.ps1 --MemoryDir D:\my-memory
   pwsh install.ps1 --WithCodex
   pwsh install.ps1 --WithSkills
+  pwsh install.ps1 --WithE2E
 #>
 
 [CmdletBinding()]
@@ -38,6 +44,7 @@ param(
     [switch]  $DryRun,
     [switch]  $WithCodex,
     [switch]  $WithSkills,
+    [switch]  $WithE2E,
     [switch]  $NoSchedule
 )
 
@@ -381,6 +388,20 @@ if ($WithSkills) {
     Log-Info "pass -WithSkills to install skill definitions and slash commands"
 }
 
+# ── step 4.6: e2e UI tests (optional) ─────────────────────────────────────────
+if ($WithE2E) {
+    Write-Host ""
+    Write-Host "==> e2e (agentic UI tests) for Claude Code, Codex and Cursor"
+    if ($NodeBin) {
+        $e2eArgs = @((Join-Path $RepoDir "scripts\e2e-setup.js"), "install")
+        if ($DryRun) { $e2eArgs += "--dry-run" }
+        & $NodeBin @e2eArgs
+        if ($LASTEXITCODE -ne 0) { Log-Warn "e2e setup failed; re-run: node scripts\e2e-setup.js install" }
+    } else {
+        Log-Warn "Skipping e2e setup (node not available)."
+    }
+}
+
 # ── step 5: Task Scheduler for daily distill ──────────────────────────────────
 Write-Host ""
 Write-Host "==> Task Scheduler: Memory-Distill-daily"
@@ -429,6 +450,7 @@ Write-Host "  settings   : $ClaudeSettings"
 if ($WithCodex)  { Write-Host "  Codex hooks: $CodexHooks" }
 if ($WithSkills) { Write-Host "  Skills     : ~/.claude/skills/memory, ~/.claude/skills/graph" }
 if ($WithSkills) { Write-Host "  Commands   : ~/.claude/commands/" }
+if ($WithE2E)    { Write-Host "  e2e        : ~/.agents/skills/e2e, MCP server e2e (sign in: npx e2e login openai)" }
 if ($NodeBin) {
     Write-Host "  Node       : $NodeBin $NodeVer [ok]"
 } else {

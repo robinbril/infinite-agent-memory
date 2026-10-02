@@ -420,7 +420,7 @@ elif [[ -f "$DISTILL_SCRIPT" ]]; then
     elif crontab -l 2>/dev/null | grep -qF "$DISTILL_SCRIPT"; then
       ok "distill already in crontab"
     else
-      (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+      (crontab -l 2>/dev/null || true; echo "$CRON_LINE") | crontab -
       ok "added cron job: daily at 07:30"
     fi
   fi

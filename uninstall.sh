@@ -157,7 +157,7 @@ if crontab -l 2>/dev/null | grep -qF "$DISTILL_SCRIPT"; then
   if [[ $DRY_RUN -eq 1 ]]; then
     dry "remove distill cron entry"
   else
-    crontab -l 2>/dev/null | grep -vF "$DISTILL_SCRIPT" | crontab -
+    { crontab -l 2>/dev/null | grep -vF "$DISTILL_SCRIPT" || true; } | crontab -
     ok "removed distill cron entry"
   fi
 else

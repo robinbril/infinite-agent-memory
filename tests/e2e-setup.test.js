@@ -50,7 +50,9 @@ describe('e2e-setup install', () => {
 
     assert.match(read(home, '.agents', 'skills', 'e2e', 'SKILL.md'), /name: e2e/);
     assert.match(read(home, '.agents', 'skills', 'e2e-rules', 'SKILL.md'), /name: e2e-rules/);
-    assert.match(read(home, '.agents', 'e2e', 'e2e.config.template.ts'), /e2e\/oauth\/chatgpt/);
+    const tpl = read(home, '.agents', 'e2e', 'e2e.config.template.ts');
+    assert.match(tpl, /import \{ claudeSeat \} from '\.\/\.poort\/integrations\/e2e-claude-seat\.mjs'/);
+    assert.doesNotMatch(tpl, /oauth\/chatgpt|API_KEY/);
     for (const agent of ['.claude', '.codex', '.cursor']) {
       for (const name of ['e2e', 'e2e-rules']) {
         const link = path.join(home, agent, 'skills', name);
@@ -59,7 +61,7 @@ describe('e2e-setup install', () => {
       }
     }
 
-    const entry = { command: NPX, args: ['-y', 'e2e', 'mcp'] };
+    const entry = { command: NPX, args: ['-y', 'e2e@0.18.0', 'mcp'] };
     const claude = JSON.parse(read(home, '.claude.json'));
     assert.deepEqual(claude.mcpServers.e2e, entry);
     assert.equal(claude.numStartups, 3);
@@ -68,11 +70,11 @@ describe('e2e-setup install', () => {
 
     const toml = read(home, '.codex', 'config.toml');
     assert.match(toml, /\[mcp_servers\.node_repl\]/);
-    assert.match(toml, /\[mcp_servers\.e2e\]\ncommand = "\/opt\/node\/bin\/npx"\nargs = \["-y", "e2e", "mcp"\]/);
+    assert.match(toml, /\[mcp_servers\.e2e\]\ncommand = "\/opt\/node\/bin\/npx"\nargs = \["-y", "e2e@0\.18\.0", "mcp"\]/);
 
     const claudeMd = read(home, '.claude', 'CLAUDE.md');
     assert.match(claudeMd, /^# My rules\n\n- be brief\n/);
-    assert.match(claudeMd, /ChatGPT subscription only/);
+    assert.match(claudeMd, /own Claude seat/);
     assert.match(read(home, '.codex', 'AGENTS.md'), /\*\.e2e\.ts/);
   });
 

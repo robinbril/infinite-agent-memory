@@ -7,9 +7,9 @@
  *
  *   ~/.agents/skills/e2e        upstream e2e skill (fetched from GitHub)
  *   ~/.agents/skills/e2e-rules  house rules (skills/e2e-rules in this repo)
- *   ~/.agents/e2e/              config template (ChatGPT subscription only)
+ *   ~/.agents/e2e/              config template (Claude seat via poort, no API keys)
  *   <agent>/skills/{e2e,e2e-rules} -> links into ~/.agents/skills
- *   MCP server `e2e` (npx -y e2e mcp) in ~/.claude.json, ~/.codex/config.toml,
+ *   MCP server `e2e` (npx -y e2e@<E2E_VERSION> mcp) in ~/.claude.json, ~/.codex/config.toml,
  *   ~/.cursor/mcp.json
  *   rules block in ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md
  *
@@ -32,6 +32,10 @@ const { spawnSync } = require('child_process');
 const REPO_DIR     = path.join(__dirname, '..');
 const UPSTREAM_GIT = 'https://github.com/tester-army/e2e';
 const MCP_NAME     = 'e2e';
+// Pinned, like the projects pin `e2e`: an unpinned `npx -y e2e` pulls whatever
+// npm serves at launch, so the MCP server and the project's runner can drift.
+const E2E_VERSION  = '0.18.0';
+const E2E_SPEC     = 'e2e@' + E2E_VERSION;
 const MARK_START   = '<!-- infinite-agent-memory:e2e:start -->';
 const MARK_END     = '<!-- infinite-agent-memory:e2e:end -->';
 
@@ -84,7 +88,7 @@ function makeIo(dryRun) {
 
 function readJson(file) {
   if (!fs.existsSync(file)) return {};
-  const raw = fs.readFileSync(file, 'utf8').replace(/^﻿/, '');
+  const raw = fs.readFileSync(file, 'utf8').replace(/^/, '');
   if (raw.trim() === '') return {};
   try { return JSON.parse(raw); }
   catch (e) { throw new Error('Could not parse ' + file + ': ' + e.message); }
@@ -126,7 +130,7 @@ function removeBlock(text) {
 
 function tomlBlock(npx) {
   return '[mcp_servers.e2e]\ncommand = ' + JSON.stringify(npx) +
-    '\nargs = ["-y", "e2e", "mcp"]\nstartup_timeout_sec = 60\n';
+    '\nargs = ["-y", "' + E2E_SPEC + '", "mcp"]\nstartup_timeout_sec = 60\n';
 }
 
 // TOML: drop the [mcp_servers.e2e] table (and its sub-tables) up to the next
@@ -183,7 +187,7 @@ function install(opts) {
   const io  = makeIo(opts.dryRun);
   const p   = paths(opts.home);
   const npx = opts.npx || findNpx();
-  const mcpEntry = { command: npx, args: ['-y', 'e2e', 'mcp'] };
+  const mcpEntry = { command: npx, args: ['-y', E2E_SPEC, 'mcp'] };
 
   console.log('\n==> e2e skills');
   const upstreamDest = path.join(p.agentsSkills, 'e2e');
@@ -218,7 +222,7 @@ function install(opts) {
     fs.copyFileSync(path.join(REPO_DIR, 'e2e', 'e2e.config.template.ts'), tpl);
   });
 
-  console.log('\n==> e2e MCP server (' + npx + ' -y e2e mcp)');
+  console.log('\n==> e2e MCP server (' + npx + ' -y ' + E2E_SPEC + ' mcp)');
   const jsonTargets = [['Claude Code', p.claudeJson]];
   if (fs.existsSync(p.cursorDir)) jsonTargets.push(['Cursor', p.cursorMcp]);
   for (const [label, file] of jsonTargets) {
@@ -255,7 +259,7 @@ function install(opts) {
     });
   }
 
-  console.log('\nNext: sign in to ChatGPT once with `npx e2e login openai`, then restart Codex/Cursor.');
+  console.log('\nNext: make sure `claude` is signed in (run `claude` once, or set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`), then restart Codex/Cursor.');
 }
 
 // ── uninstall ────────────────────────────────────────────────────────────────
@@ -302,7 +306,7 @@ function uninstall(opts) {
       else fs.writeFileSync(file, next, 'utf8');
     });
   }
-  console.log('\nKept: ~/.config/e2e/oauth.json (ChatGPT sign-in). Remove it with `npx e2e logout openai`.');
+  console.log('\nKept: your Claude sign-in, and ~/.config/e2e/oauth.json if an older setup signed in to ChatGPT (remove it with `npx e2e logout openai`).');
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────

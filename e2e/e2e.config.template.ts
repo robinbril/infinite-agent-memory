@@ -1,12 +1,14 @@
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { chatgpt } from 'e2e/oauth/chatgpt';
+// From poort ≥ 0.4.0 (`npx -y github:Reforge-Recruitment/poort init`). Adjust the
+// relative path if this config sits in a subfolder, e.g. '../.poort/...'.
+import { claudeSeat } from './.poort/integrations/e2e-claude-seat.mjs';
 
-// ChatGPT subscription only, no API keys. Sign in once: `npx e2e login openai`.
-// Locally e2e reads ~/.config/e2e/oauth.json; in CI put the same JSON in the
-// E2E_OAUTH_CREDENTIALS secret. List models with `npx e2e models`.
+// Claude on your own seat via `claude -p`: no API keys, no proxy. Sign in once
+// by running `claude`, or set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
+// Only recording calls a model; replaying .e2e/cache/ does not.
 //
-// Pick per environment: `E2E_MODEL=gpt-6-sol E2E_JUDGE=gpt-6-astra npx e2e run`.
+// Pick per run: `E2E_MODEL=claude-opus-5-5 npx e2e run --record`.
 export default {
   // Test files match tests/**/*.e2e.ts by default.
   targets: [
@@ -20,9 +22,9 @@ export default {
   ],
   agents: {
     default: {
-      // A fast model acts; a different ChatGPT model judges, as a second opinion.
-      model: chatgpt(process.env.E2E_MODEL ?? 'gpt-6-luna'),
-      judge: chatgpt(process.env.E2E_JUDGE ?? 'gpt-6-sol'),
+      // A fast model acts; a stronger model judges, as a second opinion.
+      model: claudeSeat(process.env.E2E_MODEL ?? 'claude-sonnet-5-5'),
+      judge: claudeSeat(process.env.E2E_JUDGE ?? 'claude-opus-5-5'),
     },
   },
 } satisfies E2EConfig;

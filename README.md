@@ -242,6 +242,52 @@ With `--with-skills` installed, the user gets four commands:
 
 The memory skill teaches the agent to compound knowledge proactively. When answering a question required reasoning that the memory did not already contain (a new synthesis, a corrected fact, a connection between pages), the agent files it back. The memory grows not just from distilled sessions but from the agent's own reasoning.
 
+## Harness improvement memory
+
+Use `scripts/improvement-memory.js` when evaluating changes to an agent's prompts, tools, or execution rules. An attempt ties a proposed change to a recurring problem, a prediction recorded before evaluation, and the evidence collected afterward. The workflow is based on [Self-Improvement Memory](https://arxiv.org/abs/2611.18856).
+
+1. **Read the history.** Run `node scripts/improvement-memory.js show` to list known problem slugs. Give the proposer and reviewer the same history with `node scripts/improvement-memory.js show premature-completion`. Check the model, benchmark, split, and revision before reusing an earlier result.
+2. **Record a plan before running the evaluation.** Reuse the problem slug and choose a fresh attempt slug. Use lowercase kebab-case for both. In `plan.json`, name the candidate revision and predict an observable result on the development split.
+
+   ```json
+   {
+     "diagnosis": "The harness can finish before running the verifier.",
+     "change": "Require a successful verification command before completion.",
+     "rationale": "The command result provides direct evidence of verification.",
+     "prediction": "Both missing-verification fixtures will pass.",
+     "context": {
+       "model": "policy-a",
+       "benchmark": "completion-fixtures",
+       "split": "dev",
+       "revision": "completion-gate-v1"
+     }
+   }
+   ```
+
+   ```sh
+   node scripts/improvement-memory.js plan premature-completion first plan.json
+   ```
+
+3. **Record the evaluation and decision.** In `outcome.json`, state what happened and point to the test run or report. `predictionStatus` takes `met`, `partially-met`, `missed`, or `inconclusive`. `decision` takes `accepted` or `rejected`.
+
+   ```json
+   {
+     "observed": "One fixture passed. The other failed after a timeout.",
+     "evidence": "fixture-run-01.txt",
+     "predictionStatus": "partially-met",
+     "decision": "rejected"
+   }
+   ```
+
+   ```sh
+   node scripts/improvement-memory.js record premature-completion first outcome.json
+   node scripts/improvement-memory.js show premature-completion
+   ```
+
+The CLI runs locally on demand and stores plans and outcomes in `$AGENT_MEMORY_DIR/_improvements/` (default `~/agent-memory/_improvements/`). Use a filesystem with hard-link support so a complete record can be published atomically. Repeating a write with identical values succeeds and preserves the original timestamp. Reusing the same attempt with different values fails.
+
+`show <problem>` returns JSON in plan timestamp order. Pending attempts show `outcome: null`. A malformed saved record returns an error naming the file. Keep held-out evaluations outside the planning and selection workflow, and store only evidence references and summaries suitable for reuse.
+
 ## Memory structure
 
 After a few weeks of use, a typical memory looks like this:
@@ -270,7 +316,7 @@ After a few weeks of use, a typical memory looks like this:
     onboarding-email.md         manually ingested document
 ```
 
-Files starting with `_` are internal state, not knowledge. The recall hook only scores pages in `entities/`, `concepts/`, and `summaries/`. Sources are excluded from recall: they are raw material, not refined knowledge.
+Paths starting with `_` hold local state, including the harness improvement history. The recall hook only scores pages in `entities/`, `concepts/`, and `summaries/`.
 
 ### Page anatomy
 

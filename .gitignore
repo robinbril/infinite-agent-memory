@@ -1,5 +1,6 @@
 _recall-index.json
 _recall-state/
+_improvements/
 _capture-queue.jsonl
 _distill-batch.md*
 _logs/

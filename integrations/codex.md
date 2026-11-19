@@ -7,8 +7,8 @@ Codex has a hook system (GA May 2026) with `SessionStart`, `UserPromptSubmit`, a
 | Aspect | Claude Code | Codex |
 |---|---|---|
 | Config file | `~/.claude/settings.json` | `~/.codex/hooks.json` |
-| Context injection (SessionStart, UserPromptSubmit) | Raw text to stdout gets prepended to the prompt | Must return JSON to stdout: `{"hookSpecificOutput": {"hookEventName": "<event>", "additionalContext": "<text>"}}` |
-| Prompt text in stdin | `input.prompt` (string) | Not delivered as a stable top-level field; read from `input.transcript_path` instead |
+| Context injection (SessionStart, UserPromptSubmit) | Raw text to stdout gets prepended to the prompt | The adapters return JSON to stdout: `{"hookSpecificOutput": {"hookEventName": "<event>", "additionalContext": "<text>"}}` |
+| Prompt text in stdin | `input.prompt` (string) | `input.prompt` (string). The adapter can fall back to the transcript on older clients. |
 | Transcript format | JSONL with `type: "user"` / `type: "assistant"` top-level entries | JSONL with `type: "response_item"` entries; user messages live at `payload.role === "user"` |
 | Windows support | Full | Full (use `command_windows` alongside `command` for PowerShell paths) |
 | Hook trust | Auto-trusted via settings.json | First run asks you to review and approve the hook hash |
@@ -65,75 +65,9 @@ if (ctx.trim()) {
 process.exit(0);
 ```
 
-### 2. prompt-recall.js (UserPromptSubmit) - works with output wrapper and prompt shim
+### 2. Prompt recall on UserPromptSubmit
 
-`prompt-recall.js` reads `input.prompt` from stdin to score the memory. Codex's UserPromptSubmit stdin does NOT include the prompt text as a stable top-level field. The closest workaround is to read the last user message from `input.transcript_path` at hook time.
-
-Additionally, the output must be wrapped in the `additionalContext` envelope.
-
-**Adapter**: `integrations/codex-prompt-recall-adapter.js`
-
-```js
-#!/usr/bin/env node
-// Reads the latest user message from transcript_path (Codex format),
-// synthesises the "prompt" field prompt-recall.js expects, and wraps
-// the output in the additionalContext envelope.
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const os = require('os');
-
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', c => { raw += c; });
-process.stdin.on('end', () => {
-  let input = {};
-  try { input = JSON.parse(raw || '{}'); } catch (_) {}
-
-  // Extract last user message from transcript (Codex format: response_item entries)
-  let lastPrompt = '';
-  const tp = input.transcript_path || '';
-  if (tp && fs.existsSync(tp)) {
-    try {
-      const lines = fs.readFileSync(tp, 'utf8').split('\n').filter(Boolean);
-      for (let i = lines.length - 1; i >= 0; i--) {
-        let o;
-        try { o = JSON.parse(lines[i]); } catch (_) { continue; }
-        if (o.type === 'response_item' && o.payload && o.payload.role === 'user') {
-          const c = o.payload.content;
-          if (Array.isArray(c)) {
-            const txt = c.map(p => (p && p.text) || '').join(' ').trim();
-            if (txt && !txt.startsWith('<environment_context')) { lastPrompt = txt; break; }
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
-  if (!lastPrompt) { process.exit(0); }
-
-  const synth = JSON.stringify({
-    prompt: lastPrompt,
-    session_id: input.session_id || 'codex',
-    cwd: input.cwd || process.cwd()
-  });
-
-  const repoDir = path.join(__dirname, '..');
-  let ctx = '';
-  try {
-    ctx = execSync(`node "${path.join(repoDir, 'hooks', 'prompt-recall.js')}"`, {
-      input: synth, encoding: 'utf8', timeout: 3000
-    });
-  } catch (_) {}
-
-  if (ctx.trim()) {
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx.trim() }
-    }));
-  }
-  process.exit(0);
-});
-```
+The [Codex adapter](codex-prompt-recall-adapter.js) passes the current `input.prompt` to the recall hook. Older clients that omit the field can fall back to the latest user message in the transcript. The adapter returns relevant excerpts in `hookSpecificOutput.additionalContext`. [Codex hook reference](https://learn.chatgpt.com/docs/hooks#userpromptsubmit)
 
 Register it:
 

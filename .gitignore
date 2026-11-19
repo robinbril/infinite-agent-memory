@@ -14,12 +14,13 @@ _server.log
 __pycache__/
 
 # Process artifacts stay local (specs, loop state, handoffs, plans, caches, scratch)
-.harness/*
-!.harness/projectstructuur/
+**/.harness/*
+!**/.harness/projectstructuur/
 .loops/
 .supergoal/
 .run/
-.e2e/
+**/.e2e/*
+!**/.e2e/cache/
 vite-cache/
 scratchpad/
 .tmp*/

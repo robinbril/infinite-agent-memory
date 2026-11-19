@@ -25,6 +25,8 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           pattern='(^|/)(\.harness|\.loops|\.supergoal|\.run|\.e2e|vite-cache|scratchpad|\.tmp[^/]*)/|(^|/)docs/(overdracht|tasks|specs|superplan)/|(^|/)docs/plan-[^/]*\.md$'
+          # Product inside those folders: the project-structure check and the e2e replay cache.
+          allowed='(^|/)\.harness/projectstructuur/|(^|/)\.e2e/cache/'
           empty_tree=$(git hash-object -t tree /dev/null)
           if [ "$EVENT" = pull_request ]; then
             base="$PR_BASE"; head="$PR_HEAD"
@@ -42,7 +44,7 @@ jobs:
           else
             files=$(git -c core.quotePath=false diff --name-only --diff-filter=d "$base...$head")
           fi
-          hits=$(printf '%s\n' "$files" | grep -Ei "$pattern" || true)
+          hits=$(printf '%s\n' "$files" | grep -Ei "$pattern" | grep -Eiv "$allowed" || true)
           if [ -n "$hits" ]; then
             while IFS= read -r f; do
               echo "::error file=$f::Process artifact, keep it local: $f"

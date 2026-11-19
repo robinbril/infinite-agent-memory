@@ -88,4 +88,6 @@ npx e2e login openai
 
 ## Further reading
 
-See [README.md](README.md) for the full design, recall algorithm, maintenance scripts, and architecture.
+- [Codex hooks](integrations/codex.md) for automatic recall in local Codex sessions.
+- [ChatGPT project sources](integrations/chatgpt.md) for using selected Markdown notes in ChatGPT.
+- [README](README.md) for the pipeline, recall algorithm, and maintenance scripts.

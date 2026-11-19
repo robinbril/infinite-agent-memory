@@ -1,59 +1,48 @@
 #!/usr/bin/env node
-// Reads the latest user message from transcript_path (Codex format),
-// synthesises the "prompt" field prompt-recall.js expects, and wraps
-// the output in the additionalContext envelope.
+// Adapts Codex UserPromptSubmit input and wraps recall as additionalContext.
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
-const os = require('os');
+const { execFileSync } = require('child_process');
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', c => { raw += c; });
-process.stdin.on('end', () => {
-  let input = {};
-  try { input = JSON.parse(raw || '{}'); } catch (_) {}
-
-  // Extract last user message from transcript (Codex format: response_item entries)
-  let lastPrompt = '';
-  const tp = input.transcript_path || '';
-  if (tp && fs.existsSync(tp)) {
-    try {
-      const lines = fs.readFileSync(tp, 'utf8').split('\n').filter(Boolean);
-      for (let i = lines.length - 1; i >= 0; i--) {
-        let o;
-        try { o = JSON.parse(lines[i]); } catch (_) { continue; }
-        if (o.type === 'response_item' && o.payload && o.payload.role === 'user') {
-          const c = o.payload.content;
-          if (Array.isArray(c)) {
-            const txt = c.map(p => (p && p.text) || '').join(' ').trim();
-            if (txt && !txt.startsWith('<environment_context')) { lastPrompt = txt; break; }
-          }
-        }
-      }
-    } catch (_) {}
+function lastTranscriptPrompt(file) {
+  if (typeof file !== 'string' || !file) return '';
+  try {
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i].trim()) continue;
+      let event;
+      try { event = JSON.parse(lines[i]); } catch (_) { continue; }
+      if (event?.type !== 'response_item' || event.payload?.role !== 'user') continue;
+      const content = event.payload.content;
+      if (!Array.isArray(content)) continue;
+      const text = content.map(part => part?.text || '').join(' ').trim();
+      if (text && !text.startsWith('<environment_context')) return text;
+    }
+  } catch (_) {
+    // Transcript formats and availability vary across older Codex versions.
   }
+  return '';
+}
 
-  if (!lastPrompt) { process.exit(0); }
+function main() {
+  const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+  if (!input || typeof input !== 'object') return;
+  const prompt = Object.hasOwn(input, 'prompt') ? input.prompt : lastTranscriptPrompt(input.transcript_path);
+  if (typeof prompt !== 'string' || !prompt.trim()) return;
 
-  const synth = JSON.stringify({
-    prompt: lastPrompt,
+  const request = JSON.stringify({
+    prompt,
     session_id: input.session_id || 'codex',
     cwd: input.cwd || process.cwd()
   });
-
-  const repoDir = path.join(__dirname, '..');
-  let ctx = '';
-  try {
-    ctx = execSync(`"${process.execPath}" "${path.join(repoDir, 'hooks', 'prompt-recall.js')}"`, {
-      input: synth, encoding: 'utf8', timeout: 3000
-    });
-  } catch (_) {}
+  const hook = path.join(__dirname, '..', 'hooks', 'prompt-recall.js');
+  const ctx = execFileSync(process.execPath, [hook], { input: request, encoding: 'utf8', timeout: 3000 });
 
   if (ctx.trim()) {
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx.trim() }
     }));
   }
-  process.exit(0);
-});
+}
+
+try { main(); } catch (_) {}

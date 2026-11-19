@@ -26,6 +26,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { unescapeXml } = require('../hooks/recall-evidence.js');
 
 const projectsDir = process.env.CLAUDE_PROJECTS_DIR ||
   path.join(os.homedir(), '.claude', 'projects');
@@ -34,7 +35,7 @@ const daysArg = process.argv.indexOf('--days');
 const DAYS = daysArg > -1 ? Number(process.argv[daysArg + 1]) || 30 : 30;
 const CUTOFF = Date.now() - DAYS * 24 * 60 * 60 * 1000;
 
-const INJECT_RE = /(?:memory|wiki)-recall source=\\?"([^"\\]+\.md)/g;
+const INJECT_RE = /(?:memory|wiki)-recall source=\\?"([^"\\]+\.md)\\?"(?: encoding=\\?"(xml)\\?")?/g;
 const CHUNK = 8 * 1024 * 1024;
 
 function listTranscripts() {
@@ -73,7 +74,7 @@ function auditFile(p, stats) {
       let m;
       INJECT_RE.lastIndex = 0;
       while ((m = INJECT_RE.exec(text)) !== null) {
-        const rel = m[1];
+        const rel = m[2] === 'xml' ? unescapeXml(m[1]) : m[1];
         const slug = slugOf(rel);
         const s = stats.get(rel) || { injected: 0, used: 0 };
         s.injected += 1;

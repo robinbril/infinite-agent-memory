@@ -1,0 +1,25 @@
+{
+  "areas": {
+    "hooks": { "responsibility": "Agent lifecycle hooks for session capture, startup recall and per-prompt recall." },
+    "integrations": { "responsibility": "Client-specific event adapters and setup instructions." },
+    "memory": { "responsibility": "Starter Markdown vault and the contract for persisted knowledge." },
+    "scripts": { "responsibility": "Distillation, indexing, diagnostics, maintenance and opt-in memory workflows." },
+    "graph": { "responsibility": "On-demand HTTP server for exploring links between memory pages." },
+    "skills": { "responsibility": "Agent instructions for the optional memory, graph and e2e workflows." },
+    "commands": { "responsibility": "User-invoked entrypoints for optional agent workflows." },
+    "e2e": { "responsibility": "Optional e2e configuration template installed into downstream projects." },
+    "tests": { "responsibility": "Repository regression tests with synthetic fixtures." },
+    "docs": { "responsibility": "Architecture, repository boundaries and editable diagrams." }
+  },
+  "allowedRootFiles": [
+    "QUICKSTART.md", "CONTRIBUTING.md", "package.json",
+    "install.sh", "install.ps1", "uninstall.sh", "uninstall.ps1"
+  ],
+  "boundariesDocument": "docs/ARCHITECTURE.md",
+  "forbiddenDependencies": [
+    { "from": "hooks", "to": "tests" },
+    { "from": "integrations", "to": "tests" },
+    { "from": "scripts", "to": "tests" },
+    { "from": "graph", "to": "tests" }
+  ]
+}
